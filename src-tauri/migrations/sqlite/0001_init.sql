@@ -141,8 +141,6 @@ CREATE TABLE orders (
   tax_minor INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK (tax_rate_bps >= 0),
   total_minor INTEGER NOT NULL DEFAULT 0 CHECK (total_minor >= 0),
-  CHECK (subtotal_minor = product_subtotal_minor + gaming_subtotal_minor),
-  CHECK (total_minor = subtotal_minor + tax_minor - discount_minor),
   amount_paid_minor INTEGER NOT NULL DEFAULT 0 CHECK (amount_paid_minor >= 0),
   change_minor INTEGER NOT NULL DEFAULT 0 CHECK (change_minor >= 0),
   currency_code TEXT NOT NULL DEFAULT 'EGP' CHECK (length(currency_code) = 3),
@@ -153,7 +151,9 @@ CREATE TABLE orders (
   closed_by TEXT,
   opened_at TEXT NOT NULL,
   closed_at TEXT,
-  FOREIGN KEY (branch_id) REFERENCES branches(id)
+  FOREIGN KEY (branch_id) REFERENCES branches(id),
+  CHECK (subtotal_minor = product_subtotal_minor + gaming_subtotal_minor),
+  CHECK (total_minor = subtotal_minor + tax_minor - discount_minor)
 );
 CREATE INDEX idx_orders_branch_status ON orders(branch_id, status);
 CREATE INDEX idx_orders_branch_opened ON orders(branch_id, opened_at);

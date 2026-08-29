@@ -25,6 +25,17 @@ describe("P1-4 tax-ready snapshots", () => {
     expect(schema.tax_mvp.auto_vat).toBe(false);
   });
 
+  it("declares SQLite order columns before table-level money CHECKs", () => {
+    const ordersSql = sqlite.slice(
+      sqlite.indexOf("CREATE TABLE orders"),
+      sqlite.indexOf("CREATE INDEX idx_orders_branch_status"),
+    );
+    expect(ordersSql.indexOf("amount_paid_minor")).toBeGreaterThan(-1);
+    expect(ordersSql.indexOf("amount_paid_minor")).toBeLessThan(
+      ordersSql.indexOf("CHECK (subtotal_minor = product_subtotal_minor + gaming_subtotal_minor)"),
+    );
+  });
+
   it("keeps the same money columns on SQLite and PostgreSQL", () => {
     for (const col of MONEY) {
       expect(sqlite).toContain(col);

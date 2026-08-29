@@ -33,10 +33,11 @@ BEGIN
   ON CONFLICT (id) DO NOTHING;
   INSERT INTO orders (
     id, branch_id, order_type, status, currency_code, opened_by, opened_at,
-    subtotal_minor, total_minor, tax_minor, tax_rate_bps, discount_minor
+    product_subtotal_minor, gaming_subtotal_minor, subtotal_minor, total_minor,
+    tax_minor, tax_rate_bps, discount_minor
   ) VALUES (
     v_order, v_branch, 'pos', 'checkout_pending', 'EGP', v_user, now(),
-    5500, 5500, 0, 0, 0
+    5500, 0, 5500, 5500, 0, 0, 0
   ) ON CONFLICT (id) DO NOTHING;
 
   PERFORM set_config('request.jwt.claim.sub', v_user::text, true);

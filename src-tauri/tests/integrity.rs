@@ -5,7 +5,37 @@ use playstation_cafe_lib::domain::{gaming, inventory, orders, payments};
 #[tokio::test]
 async fn migrations_and_full_sale_flow() {
     let pool = database::open_memory().await.expect("migrate");
+    let integrity: String = sqlx::query_scalar("PRAGMA integrity_check")
+        .fetch_one(&pool)
+        .await
+        .expect("integrity_check");
+    assert_eq!(integrity, "ok");
+    let fk_violations: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pragma_foreign_key_check")
+        .fetch_one(&pool)
+        .await
+        .unwrap_or(0);
+    assert_eq!(fk_violations, 0, "PRAGMA foreign_key_check must be empty");
     dev::seed_two_branches(&pool).await.expect("seed");
+
+    let bad_subtotal = sqlx::query(
+        "INSERT INTO orders (
+            id, branch_id, order_type, status, currency_code, opened_by, opened_at,
+            product_subtotal_minor, gaming_subtotal_minor, subtotal_minor, total_minor
+         ) VALUES ('bad-sub','b1','pos','open','EGP','u-c1','2026-01-01T00:00:00Z', 100, 0, 50, 50)",
+    )
+    .execute(&pool)
+    .await;
+    assert!(bad_subtotal.is_err(), "subtotal identity must be enforced");
+
+    let bad_total = sqlx::query(
+        "INSERT INTO orders (
+            id, branch_id, order_type, status, currency_code, opened_by, opened_at,
+            product_subtotal_minor, gaming_subtotal_minor, subtotal_minor, tax_minor, discount_minor, total_minor
+         ) VALUES ('bad-tot','b1','pos','open','EGP','u-c1','2026-01-01T00:00:00Z', 0, 0, 0, 0, 0, 10)",
+    )
+    .execute(&pool)
+    .await;
+    assert!(bad_total.is_err(), "total/tax/discount identity must be enforced");
 
     let start = gaming::start_session(&pool, "b1", "d1", "s-ps1", "u-c1")
         .await
