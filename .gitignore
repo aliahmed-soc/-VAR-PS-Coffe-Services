@@ -1,0 +1,37 @@
+logs
+*.log
+npm-debug.log*
+node_modules
+dist
+dist-ssr
+*.local
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Rust / Tauri
+src-tauri/target
+src-tauri/gen
+src-tauri/WixTools
+
+# Secrets and local data
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+data/
+backups/
+*.pem
+*.p12
+credentials.json
+src-tauri/icons/*.tmp

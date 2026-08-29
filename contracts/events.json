@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "events": [
+    {
+      "type": "session.started",
+      "aggregate": "gaming_session",
+      "payload_required": [
+        "session_id",
+        "branch_id",
+        "station_id",
+        "order_id",
+        "started_at",
+        "pricing_rule_id",
+        "pricing_snapshot",
+        "started_by"
+      ]
+    },
+    {
+      "type": "session.stopped",
+      "aggregate": "gaming_session",
+      "payload_required": [
+        "session_id",
+        "branch_id",
+        "ended_at",
+        "duration_seconds",
+        "calculated_charge_minor",
+        "final_charge_minor",
+        "stopped_by"
+      ]
+    },
+    {
+      "type": "session.resumed",
+      "aggregate": "gaming_session",
+      "payload_required": ["session_id", "branch_id", "resumed_by", "reason"]
+    },
+    {
+      "type": "session.voided",
+      "aggregate": "gaming_session",
+      "payload_required": ["session_id", "branch_id", "order_id", "voided_by", "reason"]
+    },
+    {
+      "type": "order.opened",
+      "aggregate": "order",
+      "payload_required": ["order_id", "branch_id", "order_type", "opened_by", "opened_at", "currency_code"]
+    },
+    {
+      "type": "order.item_added",
+      "aggregate": "order",
+      "payload_required": [
+        "order_item_id",
+        "order_id",
+        "branch_id",
+        "product_id",
+        "product_name_snapshot",
+        "quantity",
+        "unit_price_minor",
+        "unit_cost_minor",
+        "line_total_minor",
+        "added_by"
+      ]
+    },
+    {
+      "type": "order.item_voided",
+      "aggregate": "order",
+      "payload_required": [
+        "order_item_id",
+        "order_id",
+        "branch_id",
+        "quantity",
+        "voided_by",
+        "void_reason"
+      ]
+    },
+    {
+      "type": "order.paid",
+      "aggregate": "order",
+      "payload_required": [
+        "order_id",
+        "branch_id",
+        "payment_id",
+        "total_minor",
+        "amount_tendered_minor",
+        "amount_applied_minor",
+        "change_minor",
+        "currency_code",
+        "receipt_number",
+        "receipt_snapshot",
+        "closed_by",
+        "closed_at"
+      ]
+    },
+    {
+      "type": "order.voided",
+      "aggregate": "order",
+      "payload_required": ["order_id", "branch_id", "voided_by", "reason"]
+    },
+    {
+      "type": "payment.captured",
+      "aggregate": "payment",
+      "payload_required": [
+        "payment_id",
+        "order_id",
+        "branch_id",
+        "payment_method_id",
+        "amount_due_minor",
+        "amount_tendered_minor",
+        "amount_applied_minor",
+        "change_minor",
+        "cashier_id",
+        "paid_at"
+      ]
+    },
+    {
+      "type": "payment.reversed",
+      "aggregate": "payment",
+      "payload_required": [
+        "payment_id",
+        "parent_payment_id",
+        "order_id",
+        "branch_id",
+        "amount_applied_minor",
+        "reversed_by",
+        "reason"
+      ]
+    },
+    {
+      "type": "inventory.adjusted",
+      "aggregate": "inventory",
+      "payload_required": [
+        "movement_id",
+        "branch_id",
+        "product_id",
+        "movement_type",
+        "quantity_delta",
+        "quantity_after",
+        "reason",
+        "created_by"
+      ]
+    },
+    {
+      "type": "receipt.reprinted",
+      "aggregate": "order",
+      "payload_required": ["order_id", "branch_id", "reprinted_by"]
+    }
+  ]
+}

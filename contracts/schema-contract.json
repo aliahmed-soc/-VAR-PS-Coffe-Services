@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "operational_tables": [
+    "branches",
+    "user_profiles",
+    "user_branch_roles",
+    "devices",
+    "stations",
+    "pricing_rules",
+    "categories",
+    "products",
+    "branch_products",
+    "inventory_balances",
+    "inventory_movements",
+    "orders",
+    "gaming_sessions",
+    "order_items",
+    "payment_methods",
+    "payments",
+    "audit_logs",
+    "app_settings"
+  ],
+  "postgres_only": ["sync_receipts", "expenses", "cashier_shifts"],
+  "sqlite_only": ["sync_outbox", "sync_state", "offline_access_cache", "device_sequence"],
+  "required_event_columns": [
+    "event_id",
+    "branch_id",
+    "device_id",
+    "event_type",
+    "payload_hash"
+  ]
+}
