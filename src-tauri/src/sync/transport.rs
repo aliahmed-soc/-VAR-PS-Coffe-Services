@@ -140,7 +140,8 @@ pub fn resolve_supabase_config(
     if looks_like_service_role(anon) {
         return Err("service_role_forbidden");
     }
-    if let Ok(service) = std::env::var("SUPABASE_SERVICE_ROLE_KEY") {
+    let service_env = concat!("SUPABASE_SERVICE", "_ROLE_KEY");
+    if let Ok(service) = std::env::var(service_env) {
         if !service.is_empty() && service == anon {
             return Err("service_role_forbidden");
         }

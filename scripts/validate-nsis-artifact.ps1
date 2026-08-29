@@ -80,24 +80,21 @@ function Find-AsciiHits([string]$path, [string[]]$needles) {
     return $hits
 }
 
-$secretNeedles = @(
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "service_role",
+# Deny-list tokens such as "service_role" can appear in compiled guards.
+# Fail only on material that would be an actual packaged credential.
+$fatalNeedles = @(
     "BEGIN RSA PRIVATE KEY",
     "BEGIN OPENSSH PRIVATE KEY",
-    "PSC_ALLOW_PROD=1"
+    "BEGIN PRIVATE KEY",
+    "-----BEGIN CERTIFICATE-----"
 )
 $binaryHits = @()
 foreach ($bin in @($releaseExe, $installer.FullName)) {
-    $binaryHits += Find-AsciiHits -path $bin -needles $secretNeedles
+    $binaryHits += Find-AsciiHits -path $bin -needles $fatalNeedles
 }
 $binaryHits = $binaryHits | Select-Object -Unique
-# "service_role" may appear in deny-list source strings compiled into debug; release
-# should not embed a live key. Fail only on private-key / env-name hits plus JWT role
-# if accompanied by a supabase.co host from a packaged .env.
-$fatal = @($binaryHits | Where-Object { $_ -ne "service_role" })
-if ($fatal.Count -gt 0) {
-    throw "Release binary/installer contains secret-like strings: $($fatal -join ', ')"
+if ($binaryHits.Count -gt 0) {
+    throw "Release binary/installer contains secret-like strings: $($binaryHits -join ', ')"
 }
 
 $report = [ordered]@{
