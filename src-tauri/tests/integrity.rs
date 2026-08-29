@@ -75,6 +75,24 @@ async fn migrations_and_full_sale_flow() {
         .await
         .expect("reverse");
     assert_eq!(rev["order_id"], order_id);
+    let sale_status: String = sqlx::query_scalar(
+        "SELECT status FROM payments WHERE order_id = ? AND payment_type = 'sale'",
+    )
+    .bind(&order_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(sale_status, "reversed");
+    let reversals: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM payments WHERE order_id = ? AND payment_type = 'reversal'",
+    )
+    .bind(&order_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(reversals, 1);
+    let twice_rev = payments::reverse_payment(&pool, "b1", "d1", &order_id, "u-admin", "again").await;
+    assert!(twice_rev.is_err(), "second reverse must fail");
     let order = orders::get_order(&pool, "b1", &order_id).await.unwrap();
     assert_eq!(order["status"], "checkout_pending");
 
@@ -130,6 +148,14 @@ async fn migrations_and_full_sale_flow() {
             ["payment.captured".to_string(), "order.paid".to_string()]
         );
     }
+
+    let reversed_events: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM sync_outbox WHERE event_type = 'payment.reversed'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(reversed_events >= 1, "reverse must enqueue payment.reversed");
 
     let pending: i64 =
         sqlx::query_scalar("SELECT COUNT(*) FROM sync_outbox WHERE sync_status = 'pending'")

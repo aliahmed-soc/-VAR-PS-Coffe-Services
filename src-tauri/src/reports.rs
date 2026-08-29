@@ -28,35 +28,46 @@ pub async fn sales_summary(
     from_utc: &str,
     to_utc: &str,
 ) -> AppResult<serde_json::Value> {
-    let (gaming, product, count): (i64, i64, i64) = if let Some(branch) = branch_id {
-        sqlx::query_as(
-            "SELECT COALESCE(SUM(gaming_subtotal_minor),0),
-                    COALESCE(SUM(product_subtotal_minor),0),
-                    COUNT(*)
-             FROM orders
-             WHERE status = 'paid' AND branch_id = ? AND closed_at >= ? AND closed_at < ?",
-        )
-        .bind(branch)
-        .bind(from_utc)
-        .bind(to_utc)
-        .fetch_one(pool)
-        .await?
-    } else {
-        sqlx::query_as(
-            "SELECT COALESCE(SUM(gaming_subtotal_minor),0),
-                    COALESCE(SUM(product_subtotal_minor),0),
-                    COUNT(*)
-             FROM orders
-             WHERE status = 'paid' AND closed_at >= ? AND closed_at < ?",
-        )
-        .bind(from_utc)
-        .bind(to_utc)
-        .fetch_one(pool)
-        .await?
-    };
+    let (gaming, product, tax, discount, total, count): (i64, i64, i64, i64, i64, i64) =
+        if let Some(branch) = branch_id {
+            sqlx::query_as(
+                "SELECT COALESCE(SUM(gaming_subtotal_minor),0),
+                        COALESCE(SUM(product_subtotal_minor),0),
+                        COALESCE(SUM(tax_minor),0),
+                        COALESCE(SUM(discount_minor),0),
+                        COALESCE(SUM(total_minor),0),
+                        COUNT(*)
+                 FROM orders
+                 WHERE status = 'paid' AND branch_id = ? AND closed_at >= ? AND closed_at < ?",
+            )
+            .bind(branch)
+            .bind(from_utc)
+            .bind(to_utc)
+            .fetch_one(pool)
+            .await?
+        } else {
+            sqlx::query_as(
+                "SELECT COALESCE(SUM(gaming_subtotal_minor),0),
+                        COALESCE(SUM(product_subtotal_minor),0),
+                        COALESCE(SUM(tax_minor),0),
+                        COALESCE(SUM(discount_minor),0),
+                        COALESCE(SUM(total_minor),0),
+                        COUNT(*)
+                 FROM orders
+                 WHERE status = 'paid' AND closed_at >= ? AND closed_at < ?",
+            )
+            .bind(from_utc)
+            .bind(to_utc)
+            .fetch_one(pool)
+            .await?
+        };
+    debug_assert_eq!(gaming + product + tax - discount, total);
     Ok(serde_json::json!({
         "gaming_revenue_minor": gaming,
         "product_revenue_minor": product,
+        "tax_minor": tax,
+        "discount_minor": discount,
+        "total_minor": total,
         "sales_revenue_minor": gaming + product,
         "paid_orders": count,
         "from": from_utc,

@@ -1,12 +1,12 @@
 mod auth;
-mod backup;
+pub mod backup;
 mod commands;
 pub mod database;
 pub mod dev;
 mod device;
 pub mod domain;
 mod error;
-mod reports;
+pub mod reports;
 mod state;
 pub mod sync;
 
