@@ -56,7 +56,7 @@ pub async fn apply(pool: &SqlitePool) -> AppResult<()> {
 fn split_sql(sql: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut buf = String::new();
-    let mut begin_depth = 0;
+    let mut begin_depth: u32 = 0;
     for line in sql.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("--") {
