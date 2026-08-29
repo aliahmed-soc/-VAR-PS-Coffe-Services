@@ -62,6 +62,27 @@ pub async fn stage_restore(backup_path: &PathBuf, live_db_path: &PathBuf) -> App
     }))
 }
 
+pub fn list_backups(dest_dir: &PathBuf) -> AppResult<serde_json::Value> {
+    let mut items = Vec::new();
+    if dest_dir.exists() {
+        for entry in std::fs::read_dir(dest_dir)? {
+            let entry = entry?;
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("sqlite") {
+                continue;
+            }
+            let meta = entry.metadata()?;
+            items.push(serde_json::json!({
+                "path": path.to_string_lossy(),
+                "name": path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default(),
+                "bytes": meta.len()
+            }));
+        }
+    }
+    items.sort_by(|a, b| b["name"].as_str().cmp(&a["name"].as_str()));
+    Ok(serde_json::json!({ "backups": items }))
+}
+
 pub async fn mark_restore_reconcile(pool: &SqlitePool) -> AppResult<()> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(

@@ -9,7 +9,7 @@ export async function initI18n() {
       en: { common: en },
       ar: { common: ar },
     },
-    lng: "en",
+    lng: localStorage.getItem("psc-lang") === "ar" ? "ar" : "en",
     fallbackLng: "en",
     ns: ["common"],
     defaultNS: "common",

@@ -68,8 +68,15 @@ pub async fn seed_two_branches(pool: &SqlitePool) -> AppResult<()> {
 
     sqlx::query(
         "INSERT OR IGNORE INTO products (id, category_id, sku, name, name_ar, default_sell_price_minor, default_cost_price_minor, is_active, created_at, updated_at)
-         VALUES ('p-coke','cat-drinks','COKE','Coca-Cola','كوكا كولا',2500,1000,1,?,?)",
+         VALUES
+         ('p-coke','cat-drinks','COKE','Coca-Cola','كوكا كولا',2500,1000,1,?,?),
+         ('p-water','cat-drinks','WATER','Water','مياه',1000,400,1,?,?),
+         ('p-chips','cat-drinks','CHIPS','Chips','شيبسي',1500,600,1,?,?)",
     )
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -77,8 +84,15 @@ pub async fn seed_two_branches(pool: &SqlitePool) -> AppResult<()> {
 
     sqlx::query(
         "INSERT OR IGNORE INTO branch_products (branch_id, product_id, minimum_stock, is_active, updated_at)
-         VALUES ('b1','p-coke',5,1,?), ('b2','p-coke',5,1,?)",
+         VALUES
+         ('b1','p-coke',5,1,?), ('b2','p-coke',5,1,?),
+         ('b1','p-water',5,1,?), ('b2','p-water',5,1,?),
+         ('b1','p-chips',5,1,?), ('b2','p-chips',5,1,?)",
     )
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
     .bind(&now)
     .bind(&now)
     .execute(pool)
@@ -86,8 +100,15 @@ pub async fn seed_two_branches(pool: &SqlitePool) -> AppResult<()> {
 
     sqlx::query(
         "INSERT OR IGNORE INTO inventory_balances (branch_id, product_id, quantity_on_hand, version, updated_at)
-         VALUES ('b1','p-coke',50,1,?), ('b2','p-coke',80,1,?)",
+         VALUES
+         ('b1','p-coke',50,1,?), ('b2','p-coke',80,1,?),
+         ('b1','p-water',80,1,?), ('b2','p-water',80,1,?),
+         ('b1','p-chips',40,1,?), ('b2','p-chips',40,1,?)",
     )
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
+    .bind(&now)
     .bind(&now)
     .bind(&now)
     .execute(pool)

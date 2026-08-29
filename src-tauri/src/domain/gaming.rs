@@ -31,7 +31,18 @@ pub async fn list_stations(pool: &SqlitePool, branch_id: &str) -> AppResult<Vec<
                 g.pricing_snapshot
          FROM stations s
          LEFT JOIN gaming_sessions g
-           ON g.station_id = s.id AND g.status = 'active'
+           ON g.id = (
+             SELECT g2.id FROM gaming_sessions g2
+             INNER JOIN orders o ON o.id = g2.order_id
+             WHERE g2.station_id = s.id
+               AND g2.branch_id = s.branch_id
+               AND (
+                 g2.status = 'active'
+                 OR (g2.status = 'stopped' AND o.status IN ('open', 'checkout_pending'))
+               )
+             ORDER BY CASE g2.status WHEN 'active' THEN 0 ELSE 1 END, g2.started_at DESC
+             LIMIT 1
+           )
          WHERE s.branch_id = ?
          ORDER BY s.sort_order, s.code",
     )

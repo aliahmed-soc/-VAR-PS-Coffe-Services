@@ -276,7 +276,7 @@ pub async fn list_sales(state: State<'_, AppState>) -> AppResult<serde_json::Val
     let rows: Vec<(String, String, i64, Option<String>, Option<String>)> = sqlx::query_as(
         "SELECT id, status, total_minor, receipt_number, closed_at
          FROM orders
-         WHERE branch_id = ? AND status IN ('paid','checkout_pending')
+         WHERE branch_id = ? AND status IN ('paid','checkout_pending','open')
          ORDER BY opened_at DESC
          LIMIT 100",
     )
@@ -303,6 +303,32 @@ pub async fn sales_report(
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
     crate::reports::sales_summary(&state.db, Some(&s.branch_id), &from_utc, &to_utc).await
+}
+
+#[tauri::command]
+pub async fn sales_today(state: State<'_, AppState>) -> AppResult<serde_json::Value> {
+    let s = actor(&state)?;
+    let (from_utc, to_utc) = crate::reports::cairo_today_utc_bounds();
+    crate::reports::sales_summary(&state.db, Some(&s.branch_id), &from_utc, &to_utc).await
+}
+
+#[tauri::command]
+pub async fn void_order(
+    state: State<'_, AppState>,
+    order_id: String,
+    reason: String,
+) -> AppResult<serde_json::Value> {
+    let s = actor(&state)?;
+    orders::void_open_order(&state.db, &s.branch_id, &state.device_id, &order_id, &s.user_id, &reason).await
+}
+
+#[tauri::command]
+pub async fn list_backups(state: State<'_, AppState>) -> AppResult<serde_json::Value> {
+    let s = actor(&state)?;
+    if s.role != "admin" && !s.is_system_admin {
+        return Err(AppError::Forbidden("backup list requires admin".into()));
+    }
+    crate::backup::list_backups(&state.app_data_dir.join("backups"))
 }
 
 #[tauri::command]

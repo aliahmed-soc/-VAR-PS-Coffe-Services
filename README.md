@@ -2,6 +2,8 @@
 
 Local-first Windows POS and station timer for a two-branch PlayStation café.
 
+Repository: https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services
+
 ## Stack
 
 Tauri 2, React, TypeScript, Tailwind, Rust, SQLx, SQLite, Supabase (Postgres + Auth + RLS + RPC).
