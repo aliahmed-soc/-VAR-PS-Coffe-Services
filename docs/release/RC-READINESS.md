@@ -2,21 +2,27 @@
 
 Status date: 2026-08-29.
 
-Packaged HEAD: `ede077a25e6a06f1175e0254f7145b68f9d17569`
+Documented HEAD: `a23de55855af26a948b2f5dde17cd2aee2268def`
+
+Packaged installer HEAD (not rebuilt): `ede077a25e6a06f1175e0254f7145b68f9d17569`
 
 Release builds default the cloud URL to `https://rbxtxtlssknjioaveytg.supabase.co`.
-The publishable key was not available to compile in. Hosted migrations are not applied yet.
+Hosted migrations `20260829000100` / `20260829000200` / `20260829000300` are applied.
+The publishable key is still not available to compile in. Auth users are not created yet.
 
 ## Green / proven
 
 | Area | Evidence |
 | --- | --- |
-| contracts, cafe-domain, postgres, tauri-windows | [CI 33272630590](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33272630590) on `ede077a` |
-| Unsigned NSIS installer built, validated, smoked, uploaded | [Package Windows NSIS 33272754059](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33272754059) |
+| contracts, cafe-domain, postgres, tauri-windows | [CI 33274517711](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33274517711) on `a23de55` |
+| Hosted schema / grants / indexes / linear CHECK / tax trigger | `validate_schema.sql` on `rbxtxtlssknjioaveytg` |
+| Hosted RLS matrix (anon / HT1 / HT2 / inactive / admin) | `rls_matrix.sql` disposable IDs only |
+| Hosted `apply_domain_event` (linear, captured≠paid, paid atomic, reverse) | `event_acceptance.sql` disposable `HTE` only |
+| Unsigned NSIS installer built, validated, smoked, uploaded | [Package Windows NSIS 33272754059](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33272754059) on `ede077a` |
 | Installer file | `PlayStation Cafe POS_0.1.0_x64-setup.exe` (4,430,819 bytes) |
 | SHA-256 | `cdeda6354722cbb1b445c1058fb80b9e9fa1aec0507a5cfee4eb16d95469acc8` |
 | Artifact name | `playstation-cafe-nsis-unsigned-ede077a` |
-| Compile-time publishable key | absent (runtime/GHA secret still required) |
+| Compile-time publishable key | absent (runtime/GHA secret `PSC_SUPABASE_ANON_KEY` still required) |
 | Installer secret scan | no `sb_secret_`, PEM, or service-role material |
 | Signing | unsigned (expected; not a build failure) |
 | MVP gaming charge | `floor(rate_minor_per_hour * actual_duration_seconds / 3600)` only |
@@ -40,9 +46,10 @@ Ordinary MVP feature work is stopped.
 ## External / manual remaining
 
 - Windows Authenticode certificate (unsigned installer is not production-distributable)
-- Supabase CLI personal access token (`SUPABASE_ACCESS_TOKEN`) or hosted Postgres password — required to apply `supabase/migrations/` to `rbxtxtlssknjioaveytg` (the desktop publishable key cannot do this)
-- Production publishable key (`sb_publishable_...`) in cashier env or GitHub secret `PSC_SUPABASE_ANON_KEY` — not present in this workspace
+- Supabase CLI personal access token as GitHub secret `SUPABASE_ACCESS_TOKEN` — required for the **Hosted Supabase migrate** workflow (`workflow_dispatch`); production schema was applied with the database password instead
+- Production publishable key (`sb_publishable_...`) in cashier env or GitHub secret `PSC_SUPABASE_ANON_KEY` — UAT NSIS rebuild with `require_publishable_key=true` is blocked until this secret exists
 - Rotate the exposed `sb_secret_...` in the Supabase dashboard
-- Auth user emails/passwords, branch display names, station codes, device keys, linear hourly rates, and later product/inventory load
+- Create Auth users in the dashboard (email + password), then fill `supabase/bootstrap/production.sql.template` — login/refresh/PIN/72h not exercised; no production Auth users exist
+- Branch display names, station codes, device keys, linear hourly rates, and later product/inventory load
 - Physical two-branch writer-PC deployment
 - Final cashier/admin UAT on a clean Windows install ([acceptance-checklist.md](acceptance-checklist.md))
