@@ -34,7 +34,7 @@ describe("Windows packaging gate", () => {
     expect(release).not.toContain("localhost:1420");
     expect(release).not.toContain("localhost:1421");
     expect(transport).toContain("release_blocks_localhost");
-    expect(transport).toContain("service_role_forbidden");
+    expect(transport).toContain("elevated_key_forbidden");
     expect(transport).toContain("debug_blocks_production");
     expect(commands).toContain("seed_dev_data is debug-only");
     expect(app).toContain("health?.debug");

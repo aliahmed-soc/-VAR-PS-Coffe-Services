@@ -72,12 +72,26 @@ jobs:
           npx vitest run
           cargo test --manifest-path src-tauri/Cargo.toml -p cafe-domain
 
+      - name: Reject elevated cloud keys before compile
+        shell: pwsh
+        env:
+          PSC_SUPABASE_ANON_KEY: ${{ secrets.PSC_SUPABASE_ANON_KEY }}
+        run: |
+          $key = $env:PSC_SUPABASE_ANON_KEY
+          if ($key -and ($key.StartsWith('sb_secret_') -or $key -match 'service_role')) {
+            throw 'PSC_SUPABASE_ANON_KEY must be a publishable/anon key, never sb_secret or service_role'
+          }
+          if ($key) { Write-Host 'Publishable key present for compile-time release config (value not printed)' }
+          else { Write-Host 'No compile-time publishable key; release URL default still applies' }
+
       - name: Build NSIS installer (unsigned)
         id: nsis-build
         # Signing secrets are intentionally unset. Do not fail if CERT/KEY are absent.
         env:
           TAURI_SIGNING_PRIVATE_KEY: ""
           WINDOWS_CERTIFICATE_THUMBPRINT: ""
+          PSC_SUPABASE_URL: ${{ secrets.PSC_SUPABASE_URL }}
+          PSC_SUPABASE_ANON_KEY: ${{ secrets.PSC_SUPABASE_ANON_KEY }}
         run: npm run tauri -- build --bundles nsis --config src-tauri/tauri.release.conf.json
 
       - name: Validate installer + record SHA-256

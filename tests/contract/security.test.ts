@@ -20,6 +20,11 @@ describe("webview security", () => {
       const text = readFileSync(file, "utf8");
       expect(text, file).not.toMatch(/@supabase\/supabase-js/);
       expect(text, file).not.toMatch(/createClient\(/);
+      expect(text, file).not.toMatch(/supabase\.co/);
+      expect(text, file).not.toMatch(/sb_secret_/);
+      expect(text, file).not.toMatch(/sb_publishable_/);
+      expect(text, file).not.toMatch(/localStorage\.(get|set)Item\([^)]*token/i);
+      expect(text, file).not.toMatch(/sessionStorage/);
     }
   });
 });

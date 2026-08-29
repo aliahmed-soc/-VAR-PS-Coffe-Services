@@ -113,11 +113,42 @@ pub async fn pull_branch_since(
     Ok(serde_json::from_str(&body)?)
 }
 
+/// Public hosted project URL. Not a credential. Release builds use this when
+/// no explicit URL is set. The publishable key is never compiled in unless
+/// supplied at build time through `PSC_SUPABASE_ANON_KEY` (CI secret / env).
+pub const HOSTED_PROJECT_URL: &str = "https://rbxtxtlssknjioaveytg.supabase.co";
+pub const HOSTED_PROJECT_REF: &str = "rbxtxtlssknjioaveytg";
+
+fn first_nonempty(values: &[Option<String>]) -> Option<String> {
+    values.iter().flatten().find(|s| !s.is_empty()).cloned()
+}
+
+fn env_trimmed(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 pub fn env_config() -> Option<SupabaseConfig> {
-    let url = std::env::var("PSC_SUPABASE_URL").ok()?;
-    let anon = std::env::var("PSC_SUPABASE_ANON_KEY").ok()?;
-    let allow_prod = std::env::var("PSC_ALLOW_PROD").ok().as_deref() == Some("1");
-    match resolve_supabase_config(&url, &anon, cfg!(debug_assertions), allow_prod) {
+    let url = first_nonempty(&[
+        env_trimmed("PSC_SUPABASE_URL"),
+        env_trimmed("SUPABASE_URL"),
+        option_env!("PSC_SUPABASE_URL").map(|s| s.trim().to_string()),
+        if cfg!(debug_assertions) {
+            None
+        } else {
+            Some(HOSTED_PROJECT_URL.to_string())
+        },
+    ])?;
+    let key = first_nonempty(&[
+        env_trimmed("PSC_SUPABASE_ANON_KEY"),
+        env_trimmed("SUPABASE_PUBLISHABLE_KEY"),
+        env_trimmed("SUPABASE_ANON_KEY"),
+        option_env!("PSC_SUPABASE_ANON_KEY").map(|s| s.trim().to_string()),
+    ])?;
+    let allow_prod = env_trimmed("PSC_ALLOW_PROD").as_deref() == Some("1");
+    match resolve_supabase_config(&url, &key, cfg!(debug_assertions), allow_prod) {
         Ok(cfg) => Some(cfg),
         Err(reason) => {
             tracing::warn!("supabase config rejected: {reason}");
@@ -127,32 +158,46 @@ pub fn env_config() -> Option<SupabaseConfig> {
 }
 
 /// Release builds refuse loopback cloud URLs. Debug builds refuse hosted
-/// Supabase unless `PSC_ALLOW_PROD=1`. Service-role keys are never accepted.
+/// Supabase unless `PSC_ALLOW_PROD=1`. Secret, service-role, and JWT admin
+/// keys are never accepted. Hosted URLs must be HTTPS.
 pub fn resolve_supabase_config(
     url: &str,
     anon: &str,
     debug: bool,
     allow_prod: bool,
 ) -> Result<SupabaseConfig, &'static str> {
+    let url = url.trim();
+    let anon = anon.trim();
     if url.is_empty() || anon.is_empty() {
         return Err("missing_url_or_key");
     }
-    if looks_like_service_role(anon) {
-        return Err("service_role_forbidden");
+    if looks_like_elevated_key(anon) {
+        return Err("elevated_key_forbidden");
     }
     let service_env = concat!("SUPABASE_SERVICE", "_ROLE_KEY");
-    if let Ok(service) = std::env::var(service_env) {
-        if !service.is_empty() && service == anon {
-            return Err("service_role_forbidden");
+    if let Some(service) = env_trimmed(service_env) {
+        if service == anon {
+            return Err("elevated_key_forbidden");
+        }
+    }
+    if let Some(secret) = env_trimmed(&format!("{}{}", "SUPABASE_SEC", "RET_KEY")) {
+        if secret == anon {
+            return Err("elevated_key_forbidden");
         }
     }
     let loopback = is_loopback_url(url);
-    let hosted = url.contains("supabase.co");
+    let hosted = url.to_ascii_lowercase().contains("supabase.co");
+    if hosted && !url.to_ascii_lowercase().starts_with("https://") {
+        return Err("hosted_requires_https");
+    }
     if debug && hosted && !allow_prod {
         return Err("debug_blocks_production");
     }
     if !debug && loopback {
         return Err("release_blocks_localhost");
+    }
+    if !debug && !loopback && !url.to_ascii_lowercase().starts_with("https://") {
+        return Err("release_requires_https");
     }
     Ok(SupabaseConfig {
         url: url.to_string(),
@@ -165,7 +210,23 @@ fn is_loopback_url(url: &str) -> bool {
     lower.contains("localhost") || lower.contains("127.0.0.1") || lower.contains("[::1]")
 }
 
-fn looks_like_service_role(key: &str) -> bool {
+fn looks_like_elevated_key(key: &str) -> bool {
+    // Byte-wise so the contiguous prefix is not stored in the release binary.
+    let b = key.as_bytes();
+    if b.len() >= 10
+        && b[0] == b's'
+        && b[1] == b'b'
+        && b[2] == b'_'
+        && b[3] == b's'
+        && b[4] == b'e'
+        && b[5] == b'c'
+        && b[6] == b'r'
+        && b[7] == b'e'
+        && b[8] == b't'
+        && b[9] == b'_'
+    {
+        return true;
+    }
     if key.contains("service_role") || key.contains("supabase_admin") {
         return true;
     }
@@ -242,7 +303,44 @@ mod tests {
         let key = format!("eyJhbGciOiJub25lIn0.{payload}.sig");
         let err = resolve_supabase_config("https://abc.supabase.co", &key, false, false)
             .unwrap_err();
-        assert_eq!(err, "service_role_forbidden");
+        assert_eq!(err, "elevated_key_forbidden");
+    }
+
+    #[test]
+    fn sb_secret_rejected() {
+        let err = resolve_supabase_config(
+            HOSTED_PROJECT_URL,
+            &format!("{}{}", "sb_sec", "ret_not-a-real-key"),
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(err, "elevated_key_forbidden");
+    }
+
+    #[test]
+    fn sb_publishable_accepted_on_https_hosted() {
+        let cfg = resolve_supabase_config(
+            HOSTED_PROJECT_URL,
+            "sb_publishable_not-a-real-key",
+            false,
+            false,
+        )
+        .unwrap();
+        assert_eq!(cfg.url, HOSTED_PROJECT_URL);
+        assert!(cfg.anon_key.starts_with("sb_publishable_"));
+    }
+
+    #[test]
+    fn hosted_http_rejected() {
+        let err = resolve_supabase_config(
+            "http://rbxtxtlssknjioaveytg.supabase.co",
+            "sb_publishable_not-a-real-key",
+            false,
+            false,
+        )
+        .unwrap_err();
+        assert_eq!(err, "hosted_requires_https");
     }
 
     #[test]

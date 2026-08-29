@@ -38,6 +38,9 @@ Ordinary MVP feature work is stopped.
 ## External / manual remaining
 
 - Windows Authenticode certificate (unsigned installer is not production-distributable)
-- Real production Supabase project URL + anon key (never commit; never service-role)
+- Supabase CLI personal access token (`SUPABASE_ACCESS_TOKEN`) or hosted Postgres password — required to apply `supabase/migrations/` to `rbxtxtlssknjioaveytg` (the desktop publishable key cannot do this)
+- Production publishable key (`sb_publishable_...`) in cashier env or GitHub secret `PSC_SUPABASE_ANON_KEY` — not present in this workspace
+- Rotate the exposed `sb_secret_...` in the Supabase dashboard
+- Auth user emails/passwords, branch display names, station codes, device keys, linear hourly rates, and later product/inventory load
 - Physical two-branch writer-PC deployment
 - Final cashier/admin UAT on a clean Windows install ([acceptance-checklist.md](acceptance-checklist.md))

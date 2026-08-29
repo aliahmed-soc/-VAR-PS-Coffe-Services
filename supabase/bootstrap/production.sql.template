@@ -1,0 +1,53 @@
+-- Production-safe bootstrap TEMPLATE.
+-- Fill operator values, then apply once via the SQL editor or `supabase db execute`.
+-- Do not run supabase/seed/dev.sql against production.
+-- Do not invent real employee emails, passwords, or live product data here.
+
+-- 1) Create Auth users in the Supabase dashboard (email + password). Record their user_id UUIDs.
+-- 2) Replace every :placeholder below.
+-- 3) Apply as a privileged migration/SQL session (CLI / dashboard), not from the desktop app.
+
+BEGIN;
+
+INSERT INTO branches (id, code, name, timezone, currency_code)
+VALUES
+  (:branch1_id, 'B1', :branch1_name, 'Africa/Cairo', 'EGP'),
+  (:branch2_id, 'B2', :branch2_name, 'Africa/Cairo', 'EGP')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO user_profiles (user_id, display_name, preferred_locale, is_system_admin, is_active)
+VALUES
+  (:admin_user_id, :admin_display_name, 'en', true, true),
+  (:b1_cashier_user_id, :b1_cashier_display_name, 'ar', false, true),
+  (:b2_cashier_user_id, :b2_cashier_display_name, 'ar', false, true)
+ON CONFLICT (user_id) DO NOTHING;
+
+INSERT INTO user_branch_roles (user_id, branch_id, role, offline_access_allowed, is_active)
+VALUES
+  (:admin_user_id, :branch1_id, 'admin', true, true),
+  (:admin_user_id, :branch2_id, 'admin', true, true),
+  (:b1_cashier_user_id, :branch1_id, 'cashier', true, true),
+  (:b2_cashier_user_id, :branch2_id, 'cashier', true, true)
+ON CONFLICT (user_id, branch_id) DO NOTHING;
+
+INSERT INTO devices (id, branch_id, name, device_key, is_active)
+VALUES
+  (:b1_device_id, :branch1_id, :b1_device_name, :b1_device_key, true),
+  (:b2_device_id, :branch2_id, :b2_device_name, :b2_device_key, true)
+ON CONFLICT (device_key) DO NOTHING;
+
+INSERT INTO stations (id, branch_id, code, display_name, sort_order, is_active)
+VALUES
+  (:b1_station1_id, :branch1_id, :b1_station1_code, :b1_station1_name, 1, true),
+  (:b2_station1_id, :branch2_id, :b2_station1_code, :b2_station1_name, 1, true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO pricing_rules (id, branch_id, name, rule_type, rate_minor_per_hour, effective_from)
+VALUES
+  (:b1_price_id, :branch1_id, 'Linear', 'linear', :b1_rate_minor_per_hour, now()),
+  (:b2_price_id, :branch2_id, 'Linear', 'linear', :b2_rate_minor_per_hour, now());
+
+-- payment_methods.cash is created by 20260829000100_init.sql
+-- Categories / products / inventory: apply a later reviewed load file. Do not use seed/dev.sql.
+
+COMMIT;

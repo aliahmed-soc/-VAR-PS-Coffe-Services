@@ -86,7 +86,8 @@ $fatalNeedles = @(
     "BEGIN RSA PRIVATE KEY",
     "BEGIN OPENSSH PRIVATE KEY",
     "BEGIN PRIVATE KEY",
-    "-----BEGIN CERTIFICATE-----"
+    "-----BEGIN CERTIFICATE-----",
+    "sb_secret_"
 )
 $binaryHits = @()
 foreach ($bin in @($releaseExe, $installer.FullName)) {

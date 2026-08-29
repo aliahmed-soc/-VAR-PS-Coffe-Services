@@ -10,8 +10,9 @@ Items that cannot be finished in software alone. Work continues around them.
 
 ## Hosted Supabase project
 
-- **Status:** No production project credentials in this environment (correct).
-- **Mitigation:** Local Supabase CLI + `.env.example`. Production URL + anon key are operator-only. Service-role must never be installed on a cashier PC.
+- **Status:** Project `rbxtxtlssknjioaveytg` is selected. This workspace has no Supabase CLI token, no DB password, and no publishable key.
+- **Desktop key:** `sb_publishable_...` only. Any exposed `sb_secret_...` is compromised and must be rotated. Never use it in the app.
+- **DDL:** `scripts/hosted/push-migrations.ps1` or workflow `Hosted Supabase migrate` after `SUPABASE_ACCESS_TOKEN` is added. Never `db reset`.
 
 ## Physical two-branch UAT / peripherals
 

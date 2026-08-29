@@ -4,7 +4,9 @@
 
 - Rust is the only process that speaks to Supabase (`reqwest`, 15s timeout / 8s connect).
 - The webview has no `supabase-js` and no service-role material.
-- `PSC_SUPABASE_URL` + `PSC_SUPABASE_ANON_KEY` only. `SUPABASE_SERVICE_ROLE_KEY` is never packaged and is rejected if it equals the configured anon key.
+- `PSC_SUPABASE_URL` / `SUPABASE_URL` + `PSC_SUPABASE_ANON_KEY` / `SUPABASE_PUBLISHABLE_KEY` / `SUPABASE_ANON_KEY`.
+- Release default URL: `https://rbxtxtlssknjioaveytg.supabase.co`. Hosted URLs must be HTTPS.
+- Accept `sb_publishable_...`. Reject `sb_secret_...`, `service_role`, and JWT admin keys.
 - JWT payloads with `role=service_role` are rejected.
 - Release builds reject loopback URLs (`localhost`, `127.0.0.1`, `[::1]`).
 - Debug builds reject hosted `*.supabase.co` unless `PSC_ALLOW_PROD=1`.
