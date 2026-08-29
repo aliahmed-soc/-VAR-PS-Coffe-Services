@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{LazyLock, Mutex};
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -12,7 +12,8 @@ use super::pricing::{self, PricingSnapshot};
 use crate::error::{AppError, AppResult};
 use crate::sync::outbox;
 
-static LAST_OBSERVED: Mutex<HashMap<String, DateTime<Utc>>> = Mutex::new(HashMap::new());
+static LAST_OBSERVED: LazyLock<Mutex<HashMap<String, DateTime<Utc>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
 
 fn observe_clock(session_id: &str, started: DateTime<Utc>, now: DateTime<Utc>) -> bool {
     let mut map = LAST_OBSERVED.lock().unwrap_or_else(|e| e.into_inner());
