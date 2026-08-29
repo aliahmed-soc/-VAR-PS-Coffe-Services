@@ -8,7 +8,7 @@ pub mod domain;
 mod error;
 mod reports;
 mod state;
-mod sync;
+pub mod sync;
 
 use std::sync::Arc;
 

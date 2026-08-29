@@ -89,6 +89,81 @@ pub async fn enqueue(
     })
 }
 
+pub async fn mark_sending(pool: &SqlitePool, event_id: &str) -> AppResult<bool> {
+    let result = sqlx::query(
+        "UPDATE sync_outbox
+         SET sync_status = 'sending'
+         WHERE event_id = ? AND sync_status IN ('pending', 'failed')",
+    )
+    .bind(event_id)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected() == 1)
+}
+
+pub async fn recover_stale_sending(pool: &SqlitePool) -> AppResult<u64> {
+    let now = Utc::now().to_rfc3339();
+    let result = sqlx::query(
+        "UPDATE sync_outbox
+         SET sync_status = 'pending', next_attempt_at = ?, last_error = 'recovered_after_restart'
+         WHERE sync_status = 'sending'",
+    )
+    .bind(now)
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+}
+
+pub fn is_terminal_sync_error(message: &str) -> bool {
+    message.contains("event_id_payload_mismatch")
+}
+
+pub async fn mark_dead(pool: &SqlitePool, event_id: &str, error: &str) -> AppResult<()> {
+    sqlx::query(
+        "UPDATE sync_outbox
+         SET sync_status = 'failed', attempt_count = 99,
+             next_attempt_at = '9999-12-31T00:00:00Z', last_error = ?
+         WHERE event_id = ?",
+    )
+    .bind(error)
+    .bind(event_id)
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        "UPDATE sync_state SET pending_count = (
+            SELECT COUNT(*) FROM sync_outbox WHERE sync_status IN ('pending','failed','sending')
+         ), updated_at = ? WHERE id = 1",
+    )
+    .bind(Utc::now().to_rfc3339())
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+pub async fn reconcile_from_pull(pool: &SqlitePool, pull: &serde_json::Value) -> AppResult<u64> {
+    let mut marked = 0u64;
+    if let Some(receipts) = pull.get("sync_receipts").and_then(|v| v.as_array()) {
+        for receipt in receipts {
+            let Some(event_id) = receipt.get("event_id").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let status: Option<String> =
+                sqlx::query_scalar("SELECT sync_status FROM sync_outbox WHERE event_id = ?")
+                    .bind(event_id)
+                    .fetch_optional(pool)
+                    .await?;
+            if matches!(
+                status.as_deref(),
+                Some("pending" | "failed" | "sending")
+            ) {
+                mark_synced(pool, event_id).await?;
+                marked += 1;
+            }
+        }
+    }
+    Ok(marked)
+}
+
 pub async fn pending(pool: &SqlitePool, limit: i64) -> AppResult<Vec<OutboxRow>> {
     let now = Utc::now().to_rfc3339();
     let rows = sqlx::query_as::<_, OutboxRow>(
@@ -154,12 +229,20 @@ pub async fn mark_retry(
     .bind(event_id)
     .execute(pool)
     .await?;
+    sqlx::query(
+        "UPDATE sync_state SET pending_count = (
+            SELECT COUNT(*) FROM sync_outbox WHERE sync_status IN ('pending','failed','sending')
+         ), updated_at = ? WHERE id = 1",
+    )
+    .bind(Utc::now().to_rfc3339())
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::next_backoff_secs;
+    use super::*;
 
     #[test]
     fn backoff_schedule() {
@@ -168,5 +251,11 @@ mod tests {
         assert_eq!(next_backoff_secs(3), 30);
         assert_eq!(next_backoff_secs(4), 60);
         assert!(next_backoff_secs(20) <= 15 * 60);
+    }
+
+    #[test]
+    fn payload_mismatch_is_terminal() {
+        assert!(is_terminal_sync_error("rpc 400: event_id_payload_mismatch"));
+        assert!(!is_terminal_sync_error("sequence_gap expected=2"));
     }
 }

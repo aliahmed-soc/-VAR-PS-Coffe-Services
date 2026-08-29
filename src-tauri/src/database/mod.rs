@@ -37,6 +37,7 @@ pub async fn open_pool(path: &PathBuf) -> AppResult<SqlitePool> {
         .await?;
     migrate::apply(&pool).await?;
     ensure_sync_state(&pool).await?;
+    crate::sync::outbox::recover_stale_sending(&pool).await?;
     if path.with_extension("sqlite.pre-restore").exists() {
         crate::backup::mark_restore_reconcile(&pool).await?;
     }
@@ -57,6 +58,7 @@ pub async fn open_memory() -> AppResult<SqlitePool> {
         .await?;
     migrate::apply(&pool).await?;
     ensure_sync_state(&pool).await?;
+    crate::sync::outbox::recover_stale_sending(&pool).await?;
     Ok(pool)
 }
 

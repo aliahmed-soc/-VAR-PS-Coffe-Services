@@ -10,6 +10,10 @@ fn actor(state: &AppState) -> AppResult<Session> {
     state.sessions.require().map_err(AppError::Auth)
 }
 
+fn wake(state: &AppState) {
+    state.sync.notify();
+}
+
 #[tauri::command]
 pub async fn seed_dev_data(state: State<'_, AppState>) -> AppResult<()> {
     crate::dev::seed_two_branches(&state.db).await
@@ -133,14 +137,16 @@ pub async fn start_session(
     station_id: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    gaming::start_session(
+    let result = gaming::start_session(
         &state.db,
         &s.branch_id,
         &state.device_id,
         &station_id,
         &s.user_id,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -149,14 +155,16 @@ pub async fn stop_session(
     session_id: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    gaming::stop_session(
+    let result = gaming::stop_session(
         &state.db,
         &s.branch_id,
         &state.device_id,
         &session_id,
         &s.user_id,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -166,7 +174,7 @@ pub async fn resume_session(
     reason: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    gaming::resume_session(
+    let result = gaming::resume_session(
         &state.db,
         &s.branch_id,
         &state.device_id,
@@ -174,7 +182,9 @@ pub async fn resume_session(
         &s.user_id,
         &reason,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -189,7 +199,9 @@ pub async fn live_charge(
 #[tauri::command]
 pub async fn open_pos_order(state: State<'_, AppState>) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    orders::open_pos_order(&state.db, &s.branch_id, &state.device_id, &s.user_id).await
+    let result = orders::open_pos_order(&state.db, &s.branch_id, &state.device_id, &s.user_id).await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -209,7 +221,7 @@ pub async fn add_order_item(
     quantity: i64,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    inventory::add_product_to_order(
+    let result = inventory::add_product_to_order(
         &state.db,
         &s.branch_id,
         &state.device_id,
@@ -218,7 +230,9 @@ pub async fn add_order_item(
         quantity,
         &s.user_id,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -228,7 +242,7 @@ pub async fn void_order_item(
     reason: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    inventory::void_order_item(
+    let result = inventory::void_order_item(
         &state.db,
         &s.branch_id,
         &state.device_id,
@@ -236,7 +250,9 @@ pub async fn void_order_item(
         &s.user_id,
         &reason,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -246,7 +262,7 @@ pub async fn take_cash(
     tendered_minor: i64,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    payments::take_cash(
+    let result = payments::take_cash(
         &state.db,
         &s.branch_id,
         &state.device_id,
@@ -254,7 +270,9 @@ pub async fn take_cash(
         tendered_minor,
         &s.user_id,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -267,7 +285,7 @@ pub async fn reverse_payment(
     if s.role != "admin" && !s.is_system_admin {
         return Err(AppError::Forbidden("reverse_payment requires admin".into()));
     }
-    payments::reverse_payment(
+    let result = payments::reverse_payment(
         &state.db,
         &s.branch_id,
         &state.device_id,
@@ -275,7 +293,9 @@ pub async fn reverse_payment(
         &s.user_id,
         &reason,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -292,7 +312,7 @@ pub async fn adjust_inventory(
             "inventory adjustment requires admin".into(),
         ));
     }
-    inventory::adjust(
+    let result = inventory::adjust(
         &state.db,
         &s.branch_id,
         &state.device_id,
@@ -302,7 +322,9 @@ pub async fn adjust_inventory(
         &reason,
         &s.user_id,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]
@@ -383,7 +405,7 @@ pub async fn void_order(
     reason: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    orders::void_open_order(
+    let result = orders::void_open_order(
         &state.db,
         &s.branch_id,
         &state.device_id,
@@ -391,7 +413,9 @@ pub async fn void_order(
         &s.user_id,
         &reason,
     )
-    .await
+    .await?;
+    wake(&state);
+    Ok(result)
 }
 
 #[tauri::command]

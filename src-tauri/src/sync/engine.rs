@@ -51,17 +51,10 @@ impl SyncEngine {
                 sessions.access_token(),
                 sessions.branch_id(),
             ) {
-                let after = "1970-01-01T00:00:00Z";
-                match transport::pull_branch_since(&cfg, &token, &branch, after).await {
-                    Ok(_) => {
-                        let now = chrono::Utc::now().to_rfc3339();
-                        sqlx::query(
-                            "UPDATE sync_state SET restore_reconciliation_required = 0, last_successful_pull_at = ?, updated_at = ? WHERE id = 1",
-                        )
-                        .bind(&now)
-                        .bind(&now)
-                        .execute(&self.pool)
-                        .await?;
+                let after = pull_cursor(&self.pool).await;
+                match transport::pull_branch_since(&cfg, &token, &branch, &after).await {
+                    Ok(snapshot) => {
+                        apply_pull_snapshot(&self.pool, &snapshot).await?;
                     }
                     Err(e) => {
                         tracing::warn!("pull-before-push blocked: {e}");
@@ -82,6 +75,9 @@ impl SyncEngine {
 
         let pending = outbox::pending(&self.pool, 20).await?;
         for row in pending {
+            if !outbox::mark_sending(&self.pool, &row.event_id).await? {
+                continue;
+            }
             let payload: serde_json::Value = serde_json::from_str(&row.payload_json)?;
             let req = transport::ApplyRequest {
                 p_event_id: row.event_id.clone(),
@@ -110,7 +106,12 @@ impl SyncEngine {
                 }
                 Err(e) => {
                     let msg = e.to_string();
-                    outbox::mark_retry(&self.pool, &row.event_id, &msg, row.attempt_count).await?;
+                    if outbox::is_terminal_sync_error(&msg) {
+                        outbox::mark_dead(&self.pool, &row.event_id, &msg).await?;
+                    } else {
+                        outbox::mark_retry(&self.pool, &row.event_id, &msg, row.attempt_count)
+                            .await?;
+                    }
                     if msg.contains("sequence_gap") {
                         break;
                     }
@@ -119,6 +120,32 @@ impl SyncEngine {
         }
         Ok(())
     }
+}
+
+pub async fn pull_cursor(pool: &SqlitePool) -> String {
+    sqlx::query_scalar::<_, Option<String>>(
+        "SELECT last_successful_pull_at FROM sync_state WHERE id = 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .ok()
+    .flatten()
+    .flatten()
+    .filter(|s| !s.is_empty())
+    .unwrap_or_else(|| "1970-01-01T00:00:00Z".into())
+}
+
+pub async fn apply_pull_snapshot(pool: &SqlitePool, snapshot: &serde_json::Value) -> AppResult<u64> {
+    let marked = outbox::reconcile_from_pull(pool, snapshot).await?;
+    let now = chrono::Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE sync_state SET restore_reconciliation_required = 0, last_successful_pull_at = ?, updated_at = ? WHERE id = 1",
+    )
+    .bind(&now)
+    .bind(&now)
+    .execute(pool)
+    .await?;
+    Ok(marked)
 }
 
 pub async fn status(pool: &SqlitePool) -> AppResult<serde_json::Value> {
