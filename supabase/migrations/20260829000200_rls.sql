@@ -216,6 +216,7 @@ GRANT SELECT ON TABLE orders TO authenticated;
 GRANT SELECT ON TABLE order_items TO authenticated;
 GRANT SELECT ON TABLE inventory_balances TO authenticated;
 GRANT SELECT ON TABLE sync_receipts TO authenticated;
+GRANT SELECT ON TABLE device_sequence_cloud TO authenticated;
 GRANT SELECT ON TABLE branches TO authenticated;
 GRANT SELECT ON TABLE stations TO authenticated;
 GRANT SELECT ON TABLE products TO authenticated;
@@ -230,3 +231,9 @@ GRANT SELECT ON TABLE audit_logs TO authenticated;
 GRANT SELECT ON TABLE app_settings TO authenticated;
 GRANT SELECT ON TABLE expenses TO authenticated;
 GRANT SELECT ON TABLE cashier_shifts TO authenticated;
+
+-- Catalog/config writes are admin-only via RLS. Money tables stay SELECT-only.
+GRANT INSERT, UPDATE, DELETE ON TABLE
+  user_profiles, branches, user_branch_roles, devices, stations,
+  pricing_rules, categories, products, branch_products, app_settings
+TO authenticated;
