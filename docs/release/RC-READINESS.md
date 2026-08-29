@@ -2,21 +2,25 @@
 
 Status date: 2026-08-29.
 
-Packaged HEAD: `5d8165b17afc2902dd7903e431ad822272fa2c26`
+Packaged HEAD: `3ac01c7d0b502a4f901c572fa05feb725073b0cc`
 
-Operator-accepted prior baseline: run `33245609614` at `36a2337`.
-This packaging commit also has a full green CI run.
+This commit has a full green CI run and a rebuilt unsigned NSIS installer.
+Linear-only MVP gaming pricing is now enforced in domain, SQLite, and Postgres.
 
 ## Green / proven
 
 | Area | Evidence |
 | --- | --- |
-| contracts, cafe-domain, postgres, tauri-windows | [CI 33251760125](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33251760125) on `5d8165b` |
-| Unsigned NSIS installer built, validated, smoked, uploaded | [Package Windows NSIS 33251765818](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33251765818) |
-| Installer file | `PlayStation Cafe POS_0.1.0_x64-setup.exe` (4,445,027 bytes) |
-| SHA-256 | `02a2f2c9ac8975ce665e85d0fd9aa2d4ca0e207b5d23cc7afdc8c7a90a50c4df` |
-| Artifact name | `playstation-cafe-nsis-unsigned-5d8165b` |
+| contracts, cafe-domain, postgres, tauri-windows | [CI 33255367685](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33255367685) on `3ac01c7` |
+| Unsigned NSIS installer built, validated, smoked, uploaded | [Package Windows NSIS 33255490356](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33255490356) |
+| Installer file | `PlayStation Cafe POS_0.1.0_x64-setup.exe` (4,441,590 bytes) |
+| SHA-256 | `800e6a6bb6fa4fb8f077497b0425de382bcb4759403859b53da26a5d4649fa62` |
+| Artifact name | `playstation-cafe-nsis-unsigned-3ac01c7` |
 | Signing | unsigned (expected; not a build failure) |
+| MVP gaming charge | `floor(rate_minor_per_hour * actual_duration_seconds / 3600)` only |
+| Stepped / increment cannot charge | cafe-domain tests; SQLite `CHECK (rule_type = 'linear')`; Postgres same + `mvp_linear_pricing_required` |
+| Session snapshot immutable vs later rate | `src-tauri/tests/pricing.rs` |
+| UI has no pricing math | `tests/contract/pricing.test.ts` |
 | Clean install ships no DB/secrets | `scripts/smoke-nsis-install.ps1` |
 | Upgrade preserves adjacent SQLite marker | same smoke |
 | Uninstall does not wipe business-data marker | same smoke |
@@ -27,7 +31,9 @@ This packaging commit also has a full green CI run.
 | Backup retention 14 | `backup::prune_backups` |
 | Build artifacts and cert material stay out of git | `.gitignore` |
 
-Frozen architecture (sync, payment, tax, RLS, restore, offline-auth, inventory, RTL, integrity) was not reopened.
+Frozen architecture (sync, payment, tax, RLS, restore, offline-auth, inventory, RTL, integrity, linear pricing) was not reopened beyond conforming the implementation to the already-frozen formula.
+
+Ordinary MVP feature work is stopped.
 
 ## External / manual remaining
 
@@ -35,6 +41,3 @@ Frozen architecture (sync, payment, tax, RLS, restore, offline-auth, inventory, 
 - Real production Supabase project URL + anon key (never commit; never service-role)
 - Physical two-branch writer-PC deployment
 - Final cashier/admin UAT on a clean Windows install ([acceptance-checklist.md](acceptance-checklist.md))
-- Hardware peripherals if added later
-
-Local missing `link.exe` is **not** a packaging blocker. GitHub Actions Windows is the installer factory.
