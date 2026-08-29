@@ -1,6 +1,8 @@
 # Architecture decisions (frozen)
 
-Source of truth for implementation. Do not reopen these without an explicit product change.
+Canonical narrative: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
+Do not reopen these without an explicit product change.
 
 ## Stack
 
@@ -21,11 +23,28 @@ Source of truth for implementation. Do not reopen these without an explicit prod
 - Timestamps UTC. Branch timezone `Africa/Cairo` for display and report bounds.
 - Timer uses `started_at`, not `seconds++`.
 - Duration never negative. Clock jumps are flagged. Admin correction is audited.
-- Snapshots: `tax_minor = 0`, `tax_rate_bps = 0` in MVP. No tax UI.
+
+## P1-4 Tax / VAT (locked: option A)
+
+Tax-ready snapshots; tax disabled in MVP.
+
+- Fields on orders and receipt snapshots: `tax_rate_bps`, `tax_minor`, `subtotal_minor`
+- Identity: `subtotal_minor + tax_minor - discount_minor = total_minor`
+- `subtotal_minor = product_subtotal_minor + gaming_subtotal_minor`
+- MVP: `tax_rate_bps = 0`, `tax_minor = 0`, discount `0`, therefore `subtotal_minor = total_minor`
+- No tax/VAT configuration UI
+- No automatic VAT calculation
+- No VAT line shown to cashier or customer
+- Totals remain gaming + product only
+- Historical rows keep the stored zero-tax snapshot
+- Negative tax is rejected (`CHECK` + domain)
+- Tax fields are immutable once the order is paid
+- Sync replay copies snapshot tax and does not recalculate from a rate
+- Do not implement Egyptian VAT or assume VAT registration
 
 ## Sync
 
-- Domain events with UUID `event_id`
+- Domain events with UUID `event_id` (`contracts/events.json` is frozen)
 - Local transactional outbox in the same SQLite transaction as business writes
 - Strict per-device `local_sequence`; server accepts only `last + 1`
 - Duplicate `event_id` → already processed
@@ -49,7 +68,7 @@ Source of truth for implementation. Do not reopen these without an explicit prod
 
 ## Auth
 
-- Supabase Auth online; tokens stored by Rust (OS credential store)
+- Supabase Auth online; tokens stored by Rust, never in the webview
 - Offline PIN: Argon2id hash only, expires 72 hours after last online auth
 - Admin/config changes require internet
 

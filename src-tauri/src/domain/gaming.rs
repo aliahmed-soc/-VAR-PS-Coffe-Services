@@ -260,10 +260,12 @@ pub async fn stop_session(
     sqlx::query(
         "UPDATE orders
          SET gaming_subtotal_minor = ?,
+             subtotal_minor = product_subtotal_minor + ?,
              total_minor = product_subtotal_minor + ? - discount_minor + tax_minor,
              status = 'checkout_pending'
          WHERE id = ?",
     )
+    .bind(result.charge_minor)
     .bind(result.charge_minor)
     .bind(result.charge_minor)
     .bind(&order_id)
@@ -335,7 +337,7 @@ pub async fn resume_session(
     .bind(session_id)
     .execute(&mut *tx)
     .await?;
-    sqlx::query("UPDATE orders SET status = 'open', gaming_subtotal_minor = 0, total_minor = product_subtotal_minor - discount_minor + tax_minor WHERE id = ?")
+    sqlx::query("UPDATE orders SET status = 'open', gaming_subtotal_minor = 0, subtotal_minor = product_subtotal_minor, total_minor = product_subtotal_minor - discount_minor + tax_minor WHERE id = ?")
         .bind(&order_id)
         .execute(&mut *tx)
         .await?;

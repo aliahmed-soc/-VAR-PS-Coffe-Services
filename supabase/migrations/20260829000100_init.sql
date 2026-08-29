@@ -127,10 +127,13 @@ CREATE TABLE orders (
   status text NOT NULL CHECK (status IN ('open', 'checkout_pending', 'paid', 'void', 'refunded')),
   product_subtotal_minor bigint NOT NULL DEFAULT 0 CHECK (product_subtotal_minor >= 0),
   gaming_subtotal_minor bigint NOT NULL DEFAULT 0 CHECK (gaming_subtotal_minor >= 0),
+  subtotal_minor bigint NOT NULL DEFAULT 0 CHECK (subtotal_minor >= 0),
   discount_minor bigint NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
   tax_minor bigint NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   tax_rate_bps integer NOT NULL DEFAULT 0 CHECK (tax_rate_bps >= 0),
   total_minor bigint NOT NULL DEFAULT 0 CHECK (total_minor >= 0),
+  CONSTRAINT orders_subtotal_identity CHECK (subtotal_minor = product_subtotal_minor + gaming_subtotal_minor),
+  CONSTRAINT orders_total_identity CHECK (total_minor = subtotal_minor + tax_minor - discount_minor),
   amount_paid_minor bigint NOT NULL DEFAULT 0 CHECK (amount_paid_minor >= 0),
   change_minor bigint NOT NULL DEFAULT 0 CHECK (change_minor >= 0),
   currency_code char(3) NOT NULL DEFAULT 'EGP',
@@ -145,6 +148,27 @@ CREATE TABLE orders (
 CREATE INDEX idx_orders_branch_status ON orders(branch_id, status);
 CREATE INDEX idx_orders_branch_opened ON orders(branch_id, opened_at);
 CREATE UNIQUE INDEX idx_orders_receipt ON orders(receipt_number) WHERE receipt_number IS NOT NULL;
+
+CREATE OR REPLACE FUNCTION public.orders_paid_tax_immutable()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+BEGIN
+  IF OLD.status = 'paid' AND (
+    NEW.tax_minor IS DISTINCT FROM OLD.tax_minor
+    OR NEW.tax_rate_bps IS DISTINCT FROM OLD.tax_rate_bps
+    OR NEW.subtotal_minor IS DISTINCT FROM OLD.subtotal_minor
+  ) THEN
+    RAISE EXCEPTION 'paid_tax_immutable' USING ERRCODE = '23000';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER orders_paid_tax_immutable
+BEFORE UPDATE ON orders
+FOR EACH ROW
+EXECUTE PROCEDURE public.orders_paid_tax_immutable();
 
 CREATE TABLE order_items (
   id uuid PRIMARY KEY,

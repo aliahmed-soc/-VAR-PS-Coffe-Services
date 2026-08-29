@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use super::gaming::insert_audit;
 use super::money;
-use super::orders::canonical_total;
+use super::tax;
 use crate::error::{AppError, AppResult};
 use crate::sync::outbox;
 
@@ -22,17 +22,18 @@ pub async fn take_cash(
         return Err(AppError::domain("tendered amount invalid"));
     }
     let mut tx = pool.begin().await?;
-    let order: Option<(String, i64, i64, i64, i64, String)> = sqlx::query_as(
-        "SELECT status, product_subtotal_minor, gaming_subtotal_minor, discount_minor, tax_minor, order_type
+    let order: Option<(String, i64, i64, i64, i64, i64, String)> = sqlx::query_as(
+        "SELECT status, product_subtotal_minor, gaming_subtotal_minor, discount_minor, tax_minor, tax_rate_bps, order_type
          FROM orders WHERE id = ? AND branch_id = ?",
     )
     .bind(order_id)
     .bind(branch_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((status, product, gaming, discount, tax, order_type)) = order else {
+    let Some((status, product, gaming, discount, tax_minor, tax_rate_bps, order_type)) = order else {
         return Err(AppError::NotFound("order".into()));
     };
+    tax::reject_negative_tax(tax_minor, tax_rate_bps).map_err(|_| AppError::domain("negative tax rejected"))?;
     if status == "paid" {
         return Err(AppError::Conflict("order already paid".into()));
     }
@@ -54,7 +55,8 @@ pub async fn take_cash(
         }
     }
 
-    let due = canonical_total(product, gaming, discount, tax);
+    let subtotal = tax::subtotal(product, gaming).map_err(|_| AppError::domain("subtotal overflow"))?;
+    let due = tax::total(subtotal, tax_minor, discount).map_err(|_| AppError::domain("total overflow"))?;
     let change = money::change(tendered_minor, due).map_err(|_| AppError::domain("cash tendered is less than amount due"))?;
     let payment_id = Uuid::new_v4().to_string();
     let now = Utc::now();
@@ -73,9 +75,10 @@ pub async fn take_cash(
         "paid_at": now_s,
         "product_subtotal_minor": product,
         "gaming_subtotal_minor": gaming,
+        "subtotal_minor": subtotal,
         "discount_minor": discount,
-        "tax_minor": 0,
-        "tax_rate_bps": 0,
+        "tax_minor": tax_minor,
+        "tax_rate_bps": tax_rate_bps,
         "total_minor": due,
         "amount_tendered_minor": tendered_minor,
         "amount_applied_minor": due,
@@ -135,24 +138,28 @@ pub async fn take_cash(
         "cashier_id": user_id,
         "paid_at": now_s,
         "payment_method_id": CASH_METHOD_ID,
-        "amount_due_minor": due
+        "amount_due_minor": due,
+        "subtotal_minor": subtotal,
+        "tax_minor": tax_minor,
+        "tax_rate_bps": tax_rate_bps,
+        "discount_minor": discount
     });
     outbox::enqueue(&mut tx, device_id, branch_id, "order.paid", order_id, payload_order.clone()).await?;
 
     sqlx::query(
         "UPDATE orders SET
             status = 'paid',
+            subtotal_minor = ?,
             total_minor = ?,
             amount_paid_minor = ?,
             change_minor = ?,
-            tax_minor = 0,
-            tax_rate_bps = 0,
             receipt_number = ?,
             receipt_snapshot = ?,
             closed_by = ?,
             closed_at = ?
-         WHERE id = ?",
+         WHERE id = ? AND status <> 'paid'",
     )
+    .bind(subtotal)
     .bind(due)
     .bind(due)
     .bind(change)

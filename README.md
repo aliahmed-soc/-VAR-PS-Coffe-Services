@@ -8,7 +8,9 @@ Repository: https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services
 
 Tauri 2, React, TypeScript, Tailwind, Rust, SQLx, SQLite, Supabase (Postgres + Auth + RLS + RPC).
 
-React is UI only. Rust owns SQLite, money, pricing, payments, outbox, and all Supabase HTTP.
+React is UI only. Rust owns SQLite, money, pricing, payments, outbox, and all Supabase HTTP. There is no `supabase-js` in the webview.
+
+Canonical architecture: [`docs/architecture/ARCHITECTURE.md`](docs/architecture/ARCHITECTURE.md).
 
 ## Development
 

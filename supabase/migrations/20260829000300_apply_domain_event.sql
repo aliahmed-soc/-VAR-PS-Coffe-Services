@@ -62,7 +62,7 @@ BEGIN
     WHEN 'order.opened' THEN
       INSERT INTO orders (
         id, branch_id, order_type, status, currency_code, opened_by, opened_at,
-        tax_minor, tax_rate_bps, origin_device_id
+        tax_minor, tax_rate_bps, subtotal_minor, total_minor, origin_device_id
       ) VALUES (
         (p_payload->>'order_id')::uuid,
         p_branch_id,
@@ -71,7 +71,7 @@ BEGIN
         COALESCE(p_payload->>'currency_code', 'EGP'),
         (p_payload->>'opened_by')::uuid,
         (p_payload->>'opened_at')::timestamptz,
-        0, 0, p_device_id
+        0, 0, 0, 0, p_device_id
       );
 
     WHEN 'session.started' THEN
@@ -103,6 +103,7 @@ BEGIN
         AND status = 'active';
       UPDATE orders
       SET gaming_subtotal_minor = (p_payload->>'final_charge_minor')::bigint,
+          subtotal_minor = product_subtotal_minor + (p_payload->>'final_charge_minor')::bigint,
           status = 'checkout_pending',
           total_minor = product_subtotal_minor + (p_payload->>'final_charge_minor')::bigint - discount_minor + tax_minor
       WHERE id = (SELECT order_id FROM gaming_sessions WHERE id = (p_payload->>'session_id')::uuid);
@@ -118,7 +119,9 @@ BEGIN
         AND status = 'stopped';
       UPDATE orders
       SET status = 'open',
-          gaming_subtotal_minor = 0
+          gaming_subtotal_minor = 0,
+          subtotal_minor = product_subtotal_minor,
+          total_minor = product_subtotal_minor - discount_minor + tax_minor
       WHERE id = (SELECT order_id FROM gaming_sessions WHERE id = (p_payload->>'session_id')::uuid)
         AND status = 'checkout_pending';
 
@@ -147,6 +150,7 @@ BEGIN
       );
       UPDATE orders
       SET product_subtotal_minor = product_subtotal_minor + (p_payload->>'line_total_minor')::bigint,
+          subtotal_minor = product_subtotal_minor + (p_payload->>'line_total_minor')::bigint + gaming_subtotal_minor,
           total_minor = product_subtotal_minor + (p_payload->>'line_total_minor')::bigint + gaming_subtotal_minor - discount_minor + tax_minor
       WHERE id = (p_payload->>'order_id')::uuid AND branch_id = p_branch_id;
       INSERT INTO inventory_movements (
@@ -191,9 +195,12 @@ BEGIN
       SET product_subtotal_minor = product_subtotal_minor - (
             SELECT line_total_minor FROM order_items WHERE id = (p_payload->>'order_item_id')::uuid
           ),
-          total_minor = total_minor - (
+          subtotal_minor = product_subtotal_minor - (
             SELECT line_total_minor FROM order_items WHERE id = (p_payload->>'order_item_id')::uuid
-          )
+          ) + gaming_subtotal_minor,
+          total_minor = product_subtotal_minor - (
+            SELECT line_total_minor FROM order_items WHERE id = (p_payload->>'order_item_id')::uuid
+          ) + gaming_subtotal_minor - discount_minor + tax_minor
       WHERE id = (p_payload->>'order_id')::uuid;
       INSERT INTO inventory_movements (
         id, branch_id, product_id, movement_type, quantity_delta, quantity_after,
@@ -244,11 +251,15 @@ BEGIN
         p_event_id
       )
       ON CONFLICT DO NOTHING;
+      -- Replay copies receipt-snapshot tax. Never derive tax from tax_rate_bps.
       UPDATE orders
       SET status = 'paid',
           amount_paid_minor = (p_payload->>'amount_applied_minor')::bigint,
           change_minor = (p_payload->>'change_minor')::bigint,
-          total_minor = COALESCE((p_payload->>'total_minor')::bigint, total_minor),
+          tax_minor = COALESCE((p_payload->'receipt_snapshot'->>'tax_minor')::bigint, (p_payload->>'tax_minor')::bigint, tax_minor),
+          tax_rate_bps = COALESCE((p_payload->'receipt_snapshot'->>'tax_rate_bps')::integer, (p_payload->>'tax_rate_bps')::integer, tax_rate_bps),
+          subtotal_minor = COALESCE((p_payload->'receipt_snapshot'->>'subtotal_minor')::bigint, (p_payload->>'subtotal_minor')::bigint, subtotal_minor),
+          total_minor = COALESCE((p_payload->>'total_minor')::bigint, (p_payload->'receipt_snapshot'->>'total_minor')::bigint, total_minor),
           receipt_number = COALESCE(p_payload->>'receipt_number', receipt_number),
           receipt_snapshot = COALESCE(p_payload->'receipt_snapshot', receipt_snapshot),
           closed_by = COALESCE((p_payload->>'closed_by')::uuid, (p_payload->>'cashier_id')::uuid),

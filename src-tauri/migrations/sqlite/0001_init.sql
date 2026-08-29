@@ -136,10 +136,13 @@ CREATE TABLE orders (
   status TEXT NOT NULL CHECK (status IN ('open', 'checkout_pending', 'paid', 'void', 'refunded')),
   product_subtotal_minor INTEGER NOT NULL DEFAULT 0 CHECK (product_subtotal_minor >= 0),
   gaming_subtotal_minor INTEGER NOT NULL DEFAULT 0 CHECK (gaming_subtotal_minor >= 0),
+  subtotal_minor INTEGER NOT NULL DEFAULT 0 CHECK (subtotal_minor >= 0),
   discount_minor INTEGER NOT NULL DEFAULT 0 CHECK (discount_minor >= 0),
   tax_minor INTEGER NOT NULL DEFAULT 0 CHECK (tax_minor >= 0),
   tax_rate_bps INTEGER NOT NULL DEFAULT 0 CHECK (tax_rate_bps >= 0),
   total_minor INTEGER NOT NULL DEFAULT 0 CHECK (total_minor >= 0),
+  CHECK (subtotal_minor = product_subtotal_minor + gaming_subtotal_minor),
+  CHECK (total_minor = subtotal_minor + tax_minor - discount_minor),
   amount_paid_minor INTEGER NOT NULL DEFAULT 0 CHECK (amount_paid_minor >= 0),
   change_minor INTEGER NOT NULL DEFAULT 0 CHECK (change_minor >= 0),
   currency_code TEXT NOT NULL DEFAULT 'EGP' CHECK (length(currency_code) = 3),
@@ -155,6 +158,19 @@ CREATE TABLE orders (
 CREATE INDEX idx_orders_branch_status ON orders(branch_id, status);
 CREATE INDEX idx_orders_branch_opened ON orders(branch_id, opened_at);
 CREATE UNIQUE INDEX idx_orders_receipt ON orders(receipt_number) WHERE receipt_number IS NOT NULL;
+
+CREATE TRIGGER orders_paid_tax_immutable
+BEFORE UPDATE ON orders
+FOR EACH ROW
+WHEN OLD.status = 'paid'
+ AND (
+   NEW.tax_minor IS NOT OLD.tax_minor
+   OR NEW.tax_rate_bps IS NOT OLD.tax_rate_bps
+   OR NEW.subtotal_minor IS NOT OLD.subtotal_minor
+ )
+BEGIN
+  SELECT RAISE(ABORT, 'paid_tax_immutable');
+END;
 
 CREATE TABLE order_items (
   id TEXT PRIMARY KEY NOT NULL,

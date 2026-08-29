@@ -4,15 +4,17 @@ Last updated: 2026-08-29
 
 ## Status
 
-Architecture frozen. Cashier workspace, domain transactions, and GitHub origin are in place.
+Architecture frozen. P1-4 tax-ready snapshots locked (tax zeroed in MVP). Canonical doc: `ARCHITECTURE.md`.
 
 Remote: https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services
 
 ## Done
 
 - Tauri 2 + React + TypeScript + Tailwind + i18n (en/ar, RTL, language persisted)
+- Canonical architecture in `docs/architecture/ARCHITECTURE.md` (no `supabase-js` in the webview)
 - Frozen decisions in `docs/architecture/DECISIONS.md`
-- Shared event catalog `contracts/events.json` + Vitest contract tests
+- P1-4 tax-ready snapshots: `tax_minor`/`tax_rate_bps`/`subtotal_minor`, MVP zeros, paid-immutable, replay copies snapshot
+- Shared event catalog `contracts/events.json` (frozen) + Vitest contract tests
 - Parallel SQLite and Postgres migrations
 - RLS policies and `apply_domain_event` / `pull_branch_since` RPCs
 - Rust domain: money, pricing (integer floor), clock, gaming, inventory, orders, payments, reverse_payment
@@ -31,8 +33,9 @@ Remote: https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services
 
 ## Tests run
 
-- `vitest` event-catalog contract: 3 passed
-- `cargo +gnu test -p cafe-domain`: 18 passed
+- `vitest` contract: 9 passed (events + P1-4 tax parity)
+- `cargo +gnu test -p cafe-domain`: 23 passed (includes tax default/negative/replay)
+- SQLite `integrity.rs` tax CHECKs are in-tree; full crate still needs MSVC (`link.exe`) or hits MinGW export-ordinal limits
 
 ## Next
 

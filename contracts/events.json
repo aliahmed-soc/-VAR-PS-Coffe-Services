@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "frozen": true,
   "events": [
     {
       "type": "session.started",
@@ -86,7 +87,11 @@
         "receipt_number",
         "receipt_snapshot",
         "closed_by",
-        "closed_at"
+        "closed_at",
+        "subtotal_minor",
+        "tax_minor",
+        "tax_rate_bps",
+        "discount_minor"
       ]
     },
     {

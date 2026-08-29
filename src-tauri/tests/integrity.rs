@@ -51,6 +51,37 @@ async fn migrations_and_full_sale_flow() {
         .await
         .expect("repay");
 
+    let tax_row: (i64, i64, i64, i64, Option<String>) = sqlx::query_as(
+        "SELECT tax_minor, tax_rate_bps, subtotal_minor, total_minor, receipt_snapshot FROM orders WHERE id = ?",
+    )
+    .bind(&order_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(tax_row.0, 0, "tax defaults to zero");
+    assert_eq!(tax_row.1, 0);
+    assert_eq!(tax_row.2, tax_row.3, "MVP subtotal_minor = total_minor");
+    let snap: serde_json::Value = serde_json::from_str(tax_row.4.as_deref().unwrap()).unwrap();
+    assert_eq!(snap["tax_minor"], 0);
+    assert_eq!(snap["tax_rate_bps"], 0);
+    assert_eq!(
+        playstation_cafe_lib::domain::tax::replay_tax(&snap, 1400).unwrap().tax_minor,
+        0,
+        "sync replay must not recalculate tax"
+    );
+    let mutate = sqlx::query("UPDATE orders SET tax_minor = 99 WHERE id = ?")
+        .bind(&order_id)
+        .execute(&pool)
+        .await;
+    assert!(mutate.is_err(), "tax fields are immutable once paid");
+    let negative = sqlx::query(
+        "INSERT INTO orders (id, branch_id, order_type, status, currency_code, opened_by, opened_at, tax_minor)
+         VALUES ('neg-tax','b1','pos','open','EGP','u-c1', '2026-01-01T00:00:00Z', -1)",
+    )
+    .execute(&pool)
+    .await;
+    assert!(negative.is_err(), "negative tax is rejected");
+
     let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sync_outbox WHERE sync_status = 'pending'")
         .fetch_one(&pool)
         .await

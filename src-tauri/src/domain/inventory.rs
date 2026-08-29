@@ -104,9 +104,12 @@ pub async fn add_product_to_order(
     sqlx::query(
         "UPDATE orders
          SET product_subtotal_minor = product_subtotal_minor + ?,
-             total_minor = product_subtotal_minor + gaming_subtotal_minor - discount_minor + tax_minor
+             subtotal_minor = product_subtotal_minor + ? + gaming_subtotal_minor,
+             total_minor = product_subtotal_minor + ? + gaming_subtotal_minor - discount_minor + tax_minor
          WHERE id = ?",
     )
+    .bind(line_total)
+    .bind(line_total)
     .bind(line_total)
     .bind(order_id)
     .execute(&mut *tx)
@@ -212,9 +215,12 @@ pub async fn void_order_item(
     .await?;
     sqlx::query(
         "UPDATE orders SET product_subtotal_minor = product_subtotal_minor - ?,
-            total_minor = product_subtotal_minor + gaming_subtotal_minor - discount_minor + tax_minor
+            subtotal_minor = product_subtotal_minor - ? + gaming_subtotal_minor,
+            total_minor = product_subtotal_minor - ? + gaming_subtotal_minor - discount_minor + tax_minor
          WHERE id = ?",
     )
+    .bind(line_total)
+    .bind(line_total)
     .bind(line_total)
     .bind(&order_id)
     .execute(&mut *tx)

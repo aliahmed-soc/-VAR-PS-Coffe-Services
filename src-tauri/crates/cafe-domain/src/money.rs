@@ -22,6 +22,7 @@ pub enum MoneyError {
     Overflow,
     InsufficientTender,
     Negative,
+    MissingSnapshot,
 }
 
 pub type AppMoneyResult = Result<Minor, MoneyError>;

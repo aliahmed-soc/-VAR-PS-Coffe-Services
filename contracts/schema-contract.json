@@ -1,5 +1,22 @@
 {
   "version": 1,
+  "frozen": true,
+  "order_money_columns": [
+    "product_subtotal_minor",
+    "gaming_subtotal_minor",
+    "subtotal_minor",
+    "discount_minor",
+    "tax_minor",
+    "tax_rate_bps",
+    "total_minor"
+  ],
+  "tax_mvp": {
+    "tax_minor": 0,
+    "tax_rate_bps": 0,
+    "vat_ui": false,
+    "auto_vat": false,
+    "identity": "subtotal_minor + tax_minor - discount_minor = total_minor"
+  },
   "operational_tables": [
     "branches",
     "user_profiles",

@@ -5,6 +5,11 @@ const catalog = JSON.parse(readFileSync("contracts/events.json", "utf8"));
 const schema = JSON.parse(readFileSync("contracts/schema-contract.json", "utf8"));
 
 describe("event catalog", () => {
+  it("is frozen", () => {
+    expect(catalog.frozen).toBe(true);
+    expect(schema.frozen).toBe(true);
+  });
+
   it("has required MVP events", () => {
     const types = catalog.events.map((e: { type: string }) => e.type);
     for (const required of [

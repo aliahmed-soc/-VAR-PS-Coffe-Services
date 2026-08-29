@@ -50,6 +50,7 @@ struct OrderRow {
     status: String,
     product_subtotal_minor: i64,
     gaming_subtotal_minor: i64,
+    subtotal_minor: i64,
     discount_minor: i64,
     tax_minor: i64,
     tax_rate_bps: i64,
@@ -66,7 +67,7 @@ struct OrderRow {
 pub async fn get_order(pool: &SqlitePool, branch_id: &str, order_id: &str) -> AppResult<serde_json::Value> {
     let row = sqlx::query_as::<_, OrderRow>(
         "SELECT id, branch_id, order_type, status, product_subtotal_minor, gaming_subtotal_minor,
-                discount_minor, tax_minor, tax_rate_bps, total_minor, amount_paid_minor, change_minor,
+                subtotal_minor, discount_minor, tax_minor, tax_rate_bps, total_minor, amount_paid_minor, change_minor,
                 currency_code, receipt_number, receipt_snapshot, opened_at, closed_at
          FROM orders WHERE id = ? AND branch_id = ?",
     )
@@ -91,6 +92,7 @@ pub async fn get_order(pool: &SqlitePool, branch_id: &str, order_id: &str) -> Ap
         "status": row.status,
         "product_subtotal_minor": row.product_subtotal_minor,
         "gaming_subtotal_minor": row.gaming_subtotal_minor,
+        "subtotal_minor": row.subtotal_minor,
         "discount_minor": row.discount_minor,
         "tax_minor": row.tax_minor,
         "tax_rate_bps": row.tax_rate_bps,
@@ -151,6 +153,6 @@ pub async fn void_open_order(
     Ok(payload)
 }
 
-pub fn canonical_total(product: i64, gaming: i64, discount: i64, tax: i64) -> i64 {
-    product.saturating_add(gaming).saturating_sub(discount).saturating_add(tax).max(0)
+pub fn canonical_total(product: i64, gaming: i64, discount: i64, tax_minor: i64) -> i64 {
+    crate::domain::tax::canonical_total(product, gaming, tax_minor, discount).unwrap_or(0)
 }

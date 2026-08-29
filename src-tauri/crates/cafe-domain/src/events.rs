@@ -62,6 +62,18 @@ mod tests {
     use super::*;
 
     #[test]
+    fn order_paid_freezes_tax_snapshot_fields() {
+        let paid = catalog()
+            .events
+            .into_iter()
+            .find(|e| e.event_type == "order.paid")
+            .unwrap();
+        for key in ["tax_minor", "tax_rate_bps", "subtotal_minor", "receipt_snapshot"] {
+            assert!(paid.payload_required.iter().any(|k| k == key), "missing {key}");
+        }
+    }
+
+    #[test]
     fn catalog_contains_mvp_events() {
         let types: Vec<_> = catalog().events.into_iter().map(|e| e.event_type).collect();
         for required in [
