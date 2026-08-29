@@ -2,20 +2,22 @@
 
 Status date: 2026-08-29.
 
-Packaged HEAD: `3ac01c7d0b502a4f901c572fa05feb725073b0cc`
+Packaged HEAD: `ede077a25e6a06f1175e0254f7145b68f9d17569`
 
-This commit has a full green CI run and a rebuilt unsigned NSIS installer.
-Linear-only MVP gaming pricing is now enforced in domain, SQLite, and Postgres.
+Release builds default the cloud URL to `https://rbxtxtlssknjioaveytg.supabase.co`.
+The publishable key was not available to compile in. Hosted migrations are not applied yet.
 
 ## Green / proven
 
 | Area | Evidence |
 | --- | --- |
-| contracts, cafe-domain, postgres, tauri-windows | [CI 33255367685](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33255367685) on `3ac01c7` |
-| Unsigned NSIS installer built, validated, smoked, uploaded | [Package Windows NSIS 33255490356](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33255490356) |
-| Installer file | `PlayStation Cafe POS_0.1.0_x64-setup.exe` (4,441,590 bytes) |
-| SHA-256 | `800e6a6bb6fa4fb8f077497b0425de382bcb4759403859b53da26a5d4649fa62` |
-| Artifact name | `playstation-cafe-nsis-unsigned-3ac01c7` |
+| contracts, cafe-domain, postgres, tauri-windows | [CI 33272630590](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33272630590) on `ede077a` |
+| Unsigned NSIS installer built, validated, smoked, uploaded | [Package Windows NSIS 33272754059](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33272754059) |
+| Installer file | `PlayStation Cafe POS_0.1.0_x64-setup.exe` (4,430,819 bytes) |
+| SHA-256 | `cdeda6354722cbb1b445c1058fb80b9e9fa1aec0507a5cfee4eb16d95469acc8` |
+| Artifact name | `playstation-cafe-nsis-unsigned-ede077a` |
+| Compile-time publishable key | absent (runtime/GHA secret still required) |
+| Installer secret scan | no `sb_secret_`, PEM, or service-role material |
 | Signing | unsigned (expected; not a build failure) |
 | MVP gaming charge | `floor(rate_minor_per_hour * actual_duration_seconds / 3600)` only |
 | Stepped / increment cannot charge | cafe-domain tests; SQLite `CHECK (rule_type = 'linear')`; Postgres same + `mvp_linear_pricing_required` |
