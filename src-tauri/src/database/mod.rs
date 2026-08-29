@@ -13,7 +13,10 @@ pub async fn open_pool(path: &PathBuf) -> AppResult<SqlitePool> {
         std::fs::create_dir_all(parent)?;
     }
     apply_pending_restore(path)?;
-    let url = format!("sqlite://{}?mode=rwc", path.to_string_lossy().replace('\\', "/"));
+    let url = format!(
+        "sqlite://{}?mode=rwc",
+        path.to_string_lossy().replace('\\', "/")
+    );
     let options = SqliteConnectOptions::from_str(&url)?
         .create_if_missing(true)
         .journal_mode(SqliteJournalMode::Wal)
@@ -26,8 +29,12 @@ pub async fn open_pool(path: &PathBuf) -> AppResult<SqlitePool> {
         .connect_with(options)
         .await?;
 
-    sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await?;
-    sqlx::query("PRAGMA busy_timeout = 5000").execute(&pool).await?;
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await?;
+    sqlx::query("PRAGMA busy_timeout = 5000")
+        .execute(&pool)
+        .await?;
     migrate::apply(&pool).await?;
     ensure_sync_state(&pool).await?;
     if path.with_extension("sqlite.pre-restore").exists() {
@@ -45,7 +52,9 @@ pub async fn open_memory() -> AppResult<SqlitePool> {
         .max_connections(1)
         .connect_with(options)
         .await?;
-    sqlx::query("PRAGMA foreign_keys = ON").execute(&pool).await?;
+    sqlx::query("PRAGMA foreign_keys = ON")
+        .execute(&pool)
+        .await?;
     migrate::apply(&pool).await?;
     ensure_sync_state(&pool).await?;
     Ok(pool)

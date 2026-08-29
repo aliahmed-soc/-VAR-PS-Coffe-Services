@@ -31,6 +31,7 @@ React invokes Tauri commands only. Rust owns SQLite, pricing, payments, outbox, 
 2. Each event has a UUID `event_id` and a strict per-device `local_sequence`.
 3. A Tokio worker (independent of React) pushes via `apply_domain_event`.
 4. Server accepts `local_sequence == last + 1`. Duplicate `event_id` → `already_processed`. A gap → sync error; the outbox stays pending.
+5. `payment.captured` is sequence N and does not close the sale. `order.paid` is sequence N+1 and atomically inserts the captured payment, stores the immutable receipt/tax snapshot, and marks the order paid. A drop after N leaves no completed cloud sale.
 5. After a gated restore or reconnect from a restored DB: **pull before push**.
 
 Event catalog (frozen): `contracts/events.json`. Schema parity contract: `contracts/schema-contract.json`.

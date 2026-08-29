@@ -71,18 +71,27 @@ pub async fn start_session(
         return Err(AppError::Conflict("station already occupied".into()));
     }
 
-    let rule: Option<(String, String, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, Option<i64>, i64)> =
-        sqlx::query_as(
-            "SELECT id, rule_type, rate_minor_per_hour, billing_increment_seconds,
+    let rule: Option<(
+        String,
+        String,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        Option<i64>,
+        i64,
+    )> = sqlx::query_as(
+        "SELECT id, rule_type, rate_minor_per_hour, billing_increment_seconds,
                     base_duration_seconds, base_charge_minor, step_duration_seconds,
                     step_charge_minor, round_partial_step_up
              FROM pricing_rules
              WHERE branch_id = ? AND retired_at IS NULL
              ORDER BY effective_from DESC LIMIT 1",
-        )
-        .bind(branch_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+    )
+    .bind(branch_id)
+    .fetch_optional(&mut *tx)
+    .await?;
 
     let (rule_id, snapshot) = match rule {
         Some((id, rule_type, rate, inc, base_d, base_c, step_d, step_c, round_up)) => {
@@ -144,7 +153,18 @@ pub async fn start_session(
     .execute(&mut *tx)
     .await?;
 
-    insert_audit(&mut tx, branch_id, user_id, device_id, "session.started", "gaming_session", &session_id, None, Some(&snap_json)).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "session.started",
+        "gaming_session",
+        &session_id,
+        None,
+        Some(&snap_json),
+    )
+    .await?;
 
     let order_payload = serde_json::json!({
         "order_id": order_id,
@@ -154,7 +174,15 @@ pub async fn start_session(
         "opened_at": now_s,
         "currency_code": "EGP"
     });
-    outbox::enqueue(&mut tx, device_id, branch_id, "order.opened", &order_id, order_payload).await?;
+    outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "order.opened",
+        &order_id,
+        order_payload,
+    )
+    .await?;
 
     let payload = serde_json::json!({
         "session_id": session_id,
@@ -166,7 +194,15 @@ pub async fn start_session(
         "pricing_snapshot": snap_json,
         "started_by": user_id
     });
-    outbox::enqueue(&mut tx, device_id, branch_id, "session.started", &session_id, payload.clone()).await?;
+    outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "session.started",
+        &session_id,
+        payload.clone(),
+    )
+    .await?;
 
     tx.commit().await?;
     Ok(payload)
@@ -230,7 +266,9 @@ pub async fn stop_session(
         }));
     }
     if status != "active" {
-        return Err(AppError::Conflict(format!("cannot stop session in {status}")));
+        return Err(AppError::Conflict(format!(
+            "cannot stop session in {status}"
+        )));
     }
 
     let started = clock::parse_utc(&started_at).map_err(AppError::domain)?;
@@ -281,8 +319,27 @@ pub async fn stop_session(
         "final_charge_minor": result.charge_minor,
         "stopped_by": user_id
     });
-    insert_audit(&mut tx, branch_id, user_id, device_id, "session.stopped", "gaming_session", session_id, None, Some(&payload)).await?;
-    outbox::enqueue(&mut tx, device_id, branch_id, "session.stopped", session_id, payload.clone()).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "session.stopped",
+        "gaming_session",
+        session_id,
+        None,
+        Some(&payload),
+    )
+    .await?;
+    outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "session.stopped",
+        session_id,
+        payload.clone(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }
@@ -307,7 +364,9 @@ pub async fn resume_session(
         return Err(AppError::NotFound("session".into()));
     };
     if status != "stopped" {
-        return Err(AppError::Conflict("resume only before payment on a stopped session".into()));
+        return Err(AppError::Conflict(
+            "resume only before payment on a stopped session".into(),
+        ));
     }
     let order_status: String = sqlx::query_scalar("SELECT status FROM orders WHERE id = ?")
         .bind(&order_id)
@@ -325,7 +384,9 @@ pub async fn resume_session(
     .fetch_optional(&mut *tx)
     .await?;
     if occupied.is_some() {
-        return Err(AppError::Conflict("station occupied by another session".into()));
+        return Err(AppError::Conflict(
+            "station occupied by another session".into(),
+        ));
     }
 
     sqlx::query(
@@ -348,8 +409,27 @@ pub async fn resume_session(
         "resumed_by": user_id,
         "reason": reason
     });
-    insert_audit(&mut tx, branch_id, user_id, device_id, "session.resumed", "gaming_session", session_id, None, Some(&payload)).await?;
-    outbox::enqueue(&mut tx, device_id, branch_id, "session.resumed", session_id, payload.clone()).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "session.resumed",
+        "gaming_session",
+        session_id,
+        None,
+        Some(&payload),
+    )
+    .await?;
+    outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "session.resumed",
+        session_id,
+        payload.clone(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }

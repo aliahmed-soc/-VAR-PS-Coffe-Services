@@ -68,8 +68,16 @@ mod tests {
             .into_iter()
             .find(|e| e.event_type == "order.paid")
             .unwrap();
-        for key in ["tax_minor", "tax_rate_bps", "subtotal_minor", "receipt_snapshot"] {
-            assert!(paid.payload_required.iter().any(|k| k == key), "missing {key}");
+        for key in [
+            "tax_minor",
+            "tax_rate_bps",
+            "subtotal_minor",
+            "receipt_snapshot",
+        ] {
+            assert!(
+                paid.payload_required.iter().any(|k| k == key),
+                "missing {key}"
+            );
         }
     }
 

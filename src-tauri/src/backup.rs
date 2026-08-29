@@ -38,7 +38,10 @@ pub async fn backup_now(pool: &SqlitePool, dest_dir: &PathBuf) -> AppResult<serd
     }))
 }
 
-pub async fn stage_restore(backup_path: &PathBuf, live_db_path: &PathBuf) -> AppResult<serde_json::Value> {
+pub async fn stage_restore(
+    backup_path: &PathBuf,
+    live_db_path: &PathBuf,
+) -> AppResult<serde_json::Value> {
     let dest_s = backup_path.to_string_lossy().replace('\\', "/");
     let url = format!("sqlite://{dest_s}");
     let probe = sqlx::sqlite::SqlitePoolOptions::new()

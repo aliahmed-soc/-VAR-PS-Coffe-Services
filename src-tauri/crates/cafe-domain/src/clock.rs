@@ -11,7 +11,11 @@ pub fn elapsed_seconds(started_at: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
     now.signed_duration_since(started_at).num_seconds().max(0)
 }
 
-pub fn detect_jump(previous: DateTime<Utc>, now: DateTime<Utc>, threshold_seconds: i64) -> ClockObservation {
+pub fn detect_jump(
+    previous: DateTime<Utc>,
+    now: DateTime<Utc>,
+    threshold_seconds: i64,
+) -> ClockObservation {
     let delta = now.signed_duration_since(previous).num_seconds();
     let jump = delta < 0 || delta > threshold_seconds;
     ClockObservation {

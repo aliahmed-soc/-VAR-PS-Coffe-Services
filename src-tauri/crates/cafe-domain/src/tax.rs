@@ -27,12 +27,19 @@ pub fn reject_negative_tax(tax_minor: Minor, tax_rate_bps: Minor) -> Result<(), 
     Ok(())
 }
 
-pub fn subtotal(product_subtotal_minor: Minor, gaming_subtotal_minor: Minor) -> Result<Minor, MoneyError> {
+pub fn subtotal(
+    product_subtotal_minor: Minor,
+    gaming_subtotal_minor: Minor,
+) -> Result<Minor, MoneyError> {
     money::add(product_subtotal_minor, gaming_subtotal_minor)
 }
 
 /// `subtotal_minor + tax_minor - discount_minor = total_minor`
-pub fn total(subtotal_minor: Minor, tax_minor: Minor, discount_minor: Minor) -> Result<Minor, MoneyError> {
+pub fn total(
+    subtotal_minor: Minor,
+    tax_minor: Minor,
+    discount_minor: Minor,
+) -> Result<Minor, MoneyError> {
     reject_negative_tax(tax_minor, 0)?;
     if discount_minor < 0 {
         return Err(MoneyError::Negative);
@@ -46,10 +53,19 @@ pub fn canonical_total(
     tax_minor: Minor,
     discount_minor: Minor,
 ) -> Result<Minor, MoneyError> {
-    total(subtotal(product_subtotal_minor, gaming_subtotal_minor)?, tax_minor, discount_minor)
+    total(
+        subtotal(product_subtotal_minor, gaming_subtotal_minor)?,
+        tax_minor,
+        discount_minor,
+    )
 }
 
-pub fn identity_holds(subtotal_minor: Minor, tax_minor: Minor, discount_minor: Minor, total_minor: Minor) -> bool {
+pub fn identity_holds(
+    subtotal_minor: Minor,
+    tax_minor: Minor,
+    discount_minor: Minor,
+    total_minor: Minor,
+) -> bool {
     total_minor == subtotal_minor + tax_minor - discount_minor
 }
 
@@ -70,7 +86,10 @@ pub fn tax_from_receipt_snapshot(snapshot: &serde_json::Value) -> Result<TaxSnap
     })
 }
 
-pub fn replay_tax(snapshot: &serde_json::Value, _current_rate_bps: Minor) -> Result<TaxSnapshot, MoneyError> {
+pub fn replay_tax(
+    snapshot: &serde_json::Value,
+    _current_rate_bps: Minor,
+) -> Result<TaxSnapshot, MoneyError> {
     tax_from_receipt_snapshot(snapshot)
 }
 
@@ -85,7 +104,6 @@ mod tests {
         assert_eq!(snap.tax_rate_bps, 0);
         assert_eq!(canonical_total(2500, 3000, 0, 0).unwrap(), 5500);
         assert!(identity_holds(5500, 0, 0, 5500));
-        assert_eq!(5500, 5500 + 0 - 0);
     }
 
     #[test]
@@ -93,7 +111,10 @@ mod tests {
         assert_eq!(reject_negative_tax(-1, 0), Err(MoneyError::Negative));
         assert_eq!(reject_negative_tax(0, -1), Err(MoneyError::Negative));
         assert_eq!(canonical_total(100, 0, -5, 0), Err(MoneyError::Negative));
-        assert_eq!(tax_from_receipt_snapshot(&serde_json::json!({"tax_minor": -1, "tax_rate_bps": 0})), Err(MoneyError::Negative));
+        assert_eq!(
+            tax_from_receipt_snapshot(&serde_json::json!({"tax_minor": -1, "tax_rate_bps": 0})),
+            Err(MoneyError::Negative)
+        );
     }
 
     #[test]

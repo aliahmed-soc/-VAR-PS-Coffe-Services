@@ -51,6 +51,7 @@ Tax-ready snapshots; tax disabled in MVP.
 - Sequence gap → sync error, outbox stays pending
 - Rust sync worker is independent of the webview
 - Pull-before-push after restore / reconnect from a restored DB
+- `payment.captured` does not mark an order paid; `order.paid` is the atomic cloud close
 
 ## Payments
 

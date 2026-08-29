@@ -19,11 +19,12 @@ pub async fn add_product_to_order(
         return Err(AppError::domain("quantity must be > 0"));
     }
     let mut tx = pool.begin().await?;
-    let order: (String, String) = sqlx::query_as("SELECT status, branch_id FROM orders WHERE id = ?")
-        .bind(order_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound("order".into()))?;
+    let order: (String, String) =
+        sqlx::query_as("SELECT status, branch_id FROM orders WHERE id = ?")
+            .bind(order_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("order".into()))?;
     if order.1 != branch_id {
         return Err(AppError::Forbidden("cross-branch order".into()));
     }
@@ -129,7 +130,15 @@ pub async fn add_product_to_order(
         "added_at": now,
         "movement_id": movement_id
     });
-    let out = outbox::enqueue(&mut tx, device_id, branch_id, "order.item_added", &item_id, payload.clone()).await?;
+    let out = outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "order.item_added",
+        &item_id,
+        payload.clone(),
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO inventory_movements (
@@ -151,7 +160,18 @@ pub async fn add_product_to_order(
     .await?;
     let _ = event_id_placeholder;
 
-    insert_audit(&mut tx, branch_id, user_id, device_id, "order.item_added", "order_item", &item_id, None, Some(&payload)).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "order.item_added",
+        "order_item",
+        &item_id,
+        None,
+        Some(&payload),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }
@@ -198,12 +218,14 @@ pub async fn void_order_item(
     let after = stock + quantity;
     let now = Utc::now().to_rfc3339();
 
-    sqlx::query("UPDATE order_items SET status = 'voided', voided_at = ?, void_reason = ? WHERE id = ?")
-        .bind(&now)
-        .bind(reason)
-        .bind(item_id)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE order_items SET status = 'voided', voided_at = ?, void_reason = ? WHERE id = ?",
+    )
+    .bind(&now)
+    .bind(reason)
+    .bind(item_id)
+    .execute(&mut *tx)
+    .await?;
     sqlx::query(
         "UPDATE inventory_balances SET quantity_on_hand = ?, version = version + 1, updated_at = ? WHERE branch_id = ? AND product_id = ?",
     )
@@ -234,7 +256,15 @@ pub async fn void_order_item(
         "voided_by": user_id,
         "void_reason": reason
     });
-    let out = outbox::enqueue(&mut tx, device_id, branch_id, "order.item_voided", item_id, payload.clone()).await?;
+    let out = outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "order.item_voided",
+        item_id,
+        payload.clone(),
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO inventory_movements (
             id, branch_id, product_id, movement_type, quantity_delta, quantity_after,
@@ -253,7 +283,18 @@ pub async fn void_order_item(
     .bind(&now)
     .execute(&mut *tx)
     .await?;
-    insert_audit(&mut tx, branch_id, user_id, device_id, "order.item_voided", "order_item", item_id, None, Some(&payload)).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "order.item_voided",
+        "order_item",
+        item_id,
+        None,
+        Some(&payload),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }
@@ -286,7 +327,9 @@ pub async fn adjust(
     .unwrap_or(0);
     let after = stock + quantity_delta;
     if after < 0 {
-        return Err(AppError::Conflict("inventory cannot become negative".into()));
+        return Err(AppError::Conflict(
+            "inventory cannot become negative".into(),
+        ));
     }
     let now = Utc::now().to_rfc3339();
     sqlx::query(
@@ -315,7 +358,15 @@ pub async fn adjust(
         "reason": reason,
         "created_by": user_id
     });
-    let out = outbox::enqueue(&mut tx, device_id, branch_id, "inventory.adjusted", &movement_id, payload.clone()).await?;
+    let out = outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "inventory.adjusted",
+        &movement_id,
+        payload.clone(),
+    )
+    .await?;
     sqlx::query(
         "INSERT INTO inventory_movements (
             id, branch_id, product_id, movement_type, quantity_delta, quantity_after,
@@ -334,7 +385,18 @@ pub async fn adjust(
     .bind(&now)
     .execute(&mut *tx)
     .await?;
-    insert_audit(&mut tx, branch_id, user_id, device_id, "inventory.adjusted", "inventory", product_id, None, Some(&payload)).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "inventory.adjusted",
+        "inventory",
+        product_id,
+        None,
+        Some(&payload),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }
@@ -350,7 +412,11 @@ pub async fn stock(pool: &SqlitePool, branch_id: &str, product_id: &str) -> AppR
     .unwrap_or(0))
 }
 
-pub async fn ensure_balance_row(tx: &mut SqliteConnection, branch_id: &str, product_id: &str) -> AppResult<()> {
+pub async fn ensure_balance_row(
+    tx: &mut SqliteConnection,
+    branch_id: &str,
+    product_id: &str,
+) -> AppResult<()> {
     let now = Utc::now().to_rfc3339();
     sqlx::query(
         "INSERT OR IGNORE INTO inventory_balances (branch_id, product_id, quantity_on_hand, version, updated_at)

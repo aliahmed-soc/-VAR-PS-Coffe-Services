@@ -52,7 +52,7 @@ describe("P1-4 tax-ready snapshots", () => {
   it("replays receipt-snapshot tax and does not recalculate from rate", () => {
     expect(apply).toContain("Never derive tax from tax_rate_bps");
     expect(apply).toContain("receipt_snapshot");
-    expect(apply).toContain("p_payload->'receipt_snapshot'->>'tax_minor'");
+    expect(apply).toContain("v_snap->>'tax_minor'");
     expect(apply).not.toMatch(/tax_minor\s*=\s*\([^)]*tax_rate_bps/);
   });
 

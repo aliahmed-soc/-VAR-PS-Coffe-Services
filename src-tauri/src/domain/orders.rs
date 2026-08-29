@@ -36,8 +36,27 @@ pub async fn open_pos_order(
         "opened_at": now,
         "currency_code": "EGP"
     });
-    insert_audit(&mut tx, branch_id, user_id, device_id, "order.opened", "order", &order_id, None, Some(&payload)).await?;
-    outbox::enqueue(&mut tx, device_id, branch_id, "order.opened", &order_id, payload.clone()).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "order.opened",
+        "order",
+        &order_id,
+        None,
+        Some(&payload),
+    )
+    .await?;
+    outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "order.opened",
+        &order_id,
+        payload.clone(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }
@@ -64,7 +83,11 @@ struct OrderRow {
     closed_at: Option<String>,
 }
 
-pub async fn get_order(pool: &SqlitePool, branch_id: &str, order_id: &str) -> AppResult<serde_json::Value> {
+pub async fn get_order(
+    pool: &SqlitePool,
+    branch_id: &str,
+    order_id: &str,
+) -> AppResult<serde_json::Value> {
     let row = sqlx::query_as::<_, OrderRow>(
         "SELECT id, branch_id, order_type, status, product_subtotal_minor, gaming_subtotal_minor,
                 subtotal_minor, discount_minor, tax_minor, tax_rate_bps, total_minor, amount_paid_minor, change_minor,
@@ -124,14 +147,17 @@ pub async fn void_open_order(
     reason: &str,
 ) -> AppResult<serde_json::Value> {
     let mut tx = pool.begin().await?;
-    let status: String = sqlx::query_scalar("SELECT status FROM orders WHERE id = ? AND branch_id = ?")
-        .bind(order_id)
-        .bind(branch_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound("order".into()))?;
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM orders WHERE id = ? AND branch_id = ?")
+            .bind(order_id)
+            .bind(branch_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("order".into()))?;
     if status == "paid" {
-        return Err(AppError::Conflict("paid order cannot become open or void without reversal".into()));
+        return Err(AppError::Conflict(
+            "paid order cannot become open or void without reversal".into(),
+        ));
     }
     sqlx::query("UPDATE orders SET status = 'void' WHERE id = ?")
         .bind(order_id)
@@ -147,8 +173,27 @@ pub async fn void_open_order(
         "voided_by": user_id,
         "reason": reason
     });
-    insert_audit(&mut tx, branch_id, user_id, device_id, "order.voided", "order", order_id, None, Some(&payload)).await?;
-    outbox::enqueue(&mut tx, device_id, branch_id, "order.voided", order_id, payload.clone()).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "order.voided",
+        "order",
+        order_id,
+        None,
+        Some(&payload),
+    )
+    .await?;
+    outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "order.voided",
+        order_id,
+        payload.clone(),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }

@@ -17,9 +17,16 @@ pub struct AuthUser {
     pub email: Option<String>,
 }
 
-pub async fn password_login(cfg: &SupabaseConfig, email: &str, password: &str) -> AppResult<TokenResponse> {
+pub async fn password_login(
+    cfg: &SupabaseConfig,
+    email: &str,
+    password: &str,
+) -> AppResult<TokenResponse> {
     let client = reqwest::Client::new();
-    let url = format!("{}/auth/v1/token?grant_type=password", cfg.url.trim_end_matches('/'));
+    let url = format!(
+        "{}/auth/v1/token?grant_type=password",
+        cfg.url.trim_end_matches('/')
+    );
     let res = client
         .post(url)
         .header("apikey", &cfg.anon_key)
@@ -29,7 +36,10 @@ pub async fn password_login(cfg: &SupabaseConfig, email: &str, password: &str) -
         .await
         .map_err(|e| AppError::Auth(e.to_string()))?;
     let status = res.status();
-    let body = res.text().await.map_err(|e| AppError::Auth(e.to_string()))?;
+    let body = res
+        .text()
+        .await
+        .map_err(|e| AppError::Auth(e.to_string()))?;
     if !status.is_success() {
         return Err(AppError::Auth(format!("login failed: {body}")));
     }
@@ -38,7 +48,10 @@ pub async fn password_login(cfg: &SupabaseConfig, email: &str, password: &str) -
 
 pub async fn refresh(cfg: &SupabaseConfig, refresh_token: &str) -> AppResult<TokenResponse> {
     let client = reqwest::Client::new();
-    let url = format!("{}/auth/v1/token?grant_type=refresh_token", cfg.url.trim_end_matches('/'));
+    let url = format!(
+        "{}/auth/v1/token?grant_type=refresh_token",
+        cfg.url.trim_end_matches('/')
+    );
     let res = client
         .post(url)
         .header("apikey", &cfg.anon_key)
@@ -48,7 +61,10 @@ pub async fn refresh(cfg: &SupabaseConfig, refresh_token: &str) -> AppResult<Tok
         .await
         .map_err(|e| AppError::Auth(e.to_string()))?;
     let status = res.status();
-    let body = res.text().await.map_err(|e| AppError::Auth(e.to_string()))?;
+    let body = res
+        .text()
+        .await
+        .map_err(|e| AppError::Auth(e.to_string()))?;
     if !status.is_success() {
         return Err(AppError::Auth(format!("refresh failed: {body}")));
     }
@@ -72,6 +88,9 @@ pub async fn fetch_profile(
         .send()
         .await
         .map_err(|e| AppError::Auth(e.to_string()))?;
-    let body = res.text().await.map_err(|e| AppError::Auth(e.to_string()))?;
+    let body = res
+        .text()
+        .await
+        .map_err(|e| AppError::Auth(e.to_string()))?;
     Ok(serde_json::from_str(&body)?)
 }

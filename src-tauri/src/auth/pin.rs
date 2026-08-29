@@ -8,6 +8,14 @@ use crate::error::{AppError, AppResult};
 
 pub const OFFLINE_TTL_HOURS: i64 = 72;
 
+pub fn offline_authorization_valid(
+    expires_rfc3339: &str,
+    now: chrono::DateTime<Utc>,
+) -> Result<bool, String> {
+    let exp = chrono::DateTime::parse_from_rfc3339(expires_rfc3339).map_err(|e| e.to_string())?;
+    Ok(exp.with_timezone(&Utc) >= now)
+}
+
 pub fn hash_pin(pin: &str) -> AppResult<String> {
     if pin.len() < 4 {
         return Err(AppError::domain("PIN must be at least 4 characters"));
@@ -23,7 +31,11 @@ pub fn hash_pin(pin: &str) -> AppResult<String> {
 pub fn verify_pin(pin: &str, hash: &str) -> bool {
     PasswordHash::new(hash)
         .ok()
-        .and_then(|parsed| Argon2::default().verify_password(pin.as_bytes(), &parsed).ok())
+        .and_then(|parsed| {
+            Argon2::default()
+                .verify_password(pin.as_bytes(), &parsed)
+                .ok()
+        })
         .is_some()
 }
 
@@ -77,10 +89,10 @@ pub async fn unlock_offline(
     let Some((name, branch, role, hash, expires)) = row else {
         return Err(AppError::Auth("no offline access on this device".into()));
     };
-    let exp = chrono::DateTime::parse_from_rfc3339(&expires)
-        .map_err(|e| AppError::Auth(e.to_string()))?;
-    if exp.with_timezone(&Utc) < Utc::now() {
-        return Err(AppError::Auth("offline authorization expired; online login required".into()));
+    if !offline_authorization_valid(&expires, Utc::now()).map_err(AppError::Auth)? {
+        return Err(AppError::Auth(
+            "offline authorization expired; online login required".into(),
+        ));
     }
     if !verify_pin(pin, &hash) {
         return Err(AppError::Auth("invalid PIN".into()));
@@ -98,5 +110,14 @@ mod tests {
         assert!(verify_pin("1357", &hash));
         assert!(!verify_pin("0000", &hash));
         assert!(!hash.contains("1357"));
+    }
+
+    #[test]
+    fn offline_ttl_is_72_hours() {
+        assert_eq!(OFFLINE_TTL_HOURS, 72);
+        let issued = Utc::now();
+        let expires = (issued + Duration::hours(OFFLINE_TTL_HOURS)).to_rfc3339();
+        assert!(offline_authorization_valid(&expires, issued + Duration::hours(71)).unwrap());
+        assert!(!offline_authorization_valid(&expires, issued + Duration::hours(73)).unwrap());
     }
 }

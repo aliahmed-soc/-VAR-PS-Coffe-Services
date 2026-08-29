@@ -39,9 +39,11 @@ pub async fn login_online(
     password: String,
     pin: String,
 ) -> AppResult<serde_json::Value> {
-    let cfg = transport::env_config().ok_or_else(|| AppError::Auth("cloud not configured".into()))?;
+    let cfg =
+        transport::env_config().ok_or_else(|| AppError::Auth("cloud not configured".into()))?;
     let tokens = supabase_auth::password_login(&cfg, &email, &password).await?;
-    let profiles = supabase_auth::fetch_profile(&cfg, &tokens.access_token, &tokens.user.id).await?;
+    let profiles =
+        supabase_auth::fetch_profile(&cfg, &tokens.access_token, &tokens.user.id).await?;
     let profile = profiles
         .as_array()
         .and_then(|a| a.first())
@@ -63,7 +65,9 @@ pub async fn login_online(
     .bind(&tokens.user.id)
     .fetch_optional(&state.db)
     .await?
-    .ok_or_else(|| AppError::Auth("no local branch assignment; download reference data online first".into()))?;
+    .ok_or_else(|| {
+        AppError::Auth("no local branch assignment; download reference data online first".into())
+    })?;
     let role = sqlx::query_scalar::<_, String>(
         "SELECT role FROM user_branch_roles WHERE user_id = ? AND branch_id = ?",
     )
@@ -84,11 +88,17 @@ pub async fn login_online(
         offline: false,
     });
     state.sync.notify();
-    Ok(serde_json::json!({ "user_id": tokens.user.id, "display_name": display, "branch_id": branch, "role": role }))
+    Ok(
+        serde_json::json!({ "user_id": tokens.user.id, "display_name": display, "branch_id": branch, "role": role }),
+    )
 }
 
 #[tauri::command]
-pub async fn unlock_offline(state: State<'_, AppState>, user_id: String, pin: String) -> AppResult<serde_json::Value> {
+pub async fn unlock_offline(
+    state: State<'_, AppState>,
+    user_id: String,
+    pin: String,
+) -> AppResult<serde_json::Value> {
     let (name, branch, role) = pin::unlock_offline(&state.db, &user_id, &pin).await?;
     state.sessions.set(Session {
         user_id: user_id.clone(),
@@ -100,7 +110,9 @@ pub async fn unlock_offline(state: State<'_, AppState>, user_id: String, pin: St
         refresh_token: None,
         offline: true,
     });
-    Ok(serde_json::json!({ "user_id": user_id, "display_name": name, "branch_id": branch, "role": role, "offline": true }))
+    Ok(
+        serde_json::json!({ "user_id": user_id, "display_name": name, "branch_id": branch, "role": role, "offline": true }),
+    )
 }
 
 #[tauri::command]
@@ -116,15 +128,35 @@ pub async fn list_stations(state: State<'_, AppState>) -> AppResult<Vec<gaming::
 }
 
 #[tauri::command]
-pub async fn start_session(state: State<'_, AppState>, station_id: String) -> AppResult<serde_json::Value> {
+pub async fn start_session(
+    state: State<'_, AppState>,
+    station_id: String,
+) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    gaming::start_session(&state.db, &s.branch_id, &state.device_id, &station_id, &s.user_id).await
+    gaming::start_session(
+        &state.db,
+        &s.branch_id,
+        &state.device_id,
+        &station_id,
+        &s.user_id,
+    )
+    .await
 }
 
 #[tauri::command]
-pub async fn stop_session(state: State<'_, AppState>, session_id: String) -> AppResult<serde_json::Value> {
+pub async fn stop_session(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    gaming::stop_session(&state.db, &s.branch_id, &state.device_id, &session_id, &s.user_id).await
+    gaming::stop_session(
+        &state.db,
+        &s.branch_id,
+        &state.device_id,
+        &session_id,
+        &s.user_id,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -134,11 +166,22 @@ pub async fn resume_session(
     reason: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    gaming::resume_session(&state.db, &s.branch_id, &state.device_id, &session_id, &s.user_id, &reason).await
+    gaming::resume_session(
+        &state.db,
+        &s.branch_id,
+        &state.device_id,
+        &session_id,
+        &s.user_id,
+        &reason,
+    )
+    .await
 }
 
 #[tauri::command]
-pub async fn live_charge(state: State<'_, AppState>, session_id: String) -> AppResult<serde_json::Value> {
+pub async fn live_charge(
+    state: State<'_, AppState>,
+    session_id: String,
+) -> AppResult<serde_json::Value> {
     actor(&state)?;
     gaming::live_charge(&state.db, &session_id).await
 }
@@ -150,7 +193,10 @@ pub async fn open_pos_order(state: State<'_, AppState>) -> AppResult<serde_json:
 }
 
 #[tauri::command]
-pub async fn get_order(state: State<'_, AppState>, order_id: String) -> AppResult<serde_json::Value> {
+pub async fn get_order(
+    state: State<'_, AppState>,
+    order_id: String,
+) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
     orders::get_order(&state.db, &s.branch_id, &order_id).await
 }
@@ -182,7 +228,15 @@ pub async fn void_order_item(
     reason: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    inventory::void_order_item(&state.db, &s.branch_id, &state.device_id, &item_id, &s.user_id, &reason).await
+    inventory::void_order_item(
+        &state.db,
+        &s.branch_id,
+        &state.device_id,
+        &item_id,
+        &s.user_id,
+        &reason,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -213,7 +267,15 @@ pub async fn reverse_payment(
     if s.role != "admin" && !s.is_system_admin {
         return Err(AppError::Forbidden("reverse_payment requires admin".into()));
     }
-    payments::reverse_payment(&state.db, &s.branch_id, &state.device_id, &order_id, &s.user_id, &reason).await
+    payments::reverse_payment(
+        &state.db,
+        &s.branch_id,
+        &state.device_id,
+        &order_id,
+        &s.user_id,
+        &reason,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -226,7 +288,9 @@ pub async fn adjust_inventory(
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
     if s.role != "admin" && !s.is_system_admin {
-        return Err(AppError::Forbidden("inventory adjustment requires admin".into()));
+        return Err(AppError::Forbidden(
+            "inventory adjustment requires admin".into(),
+        ));
     }
     inventory::adjust(
         &state.db,
@@ -319,7 +383,15 @@ pub async fn void_order(
     reason: String,
 ) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
-    orders::void_open_order(&state.db, &s.branch_id, &state.device_id, &order_id, &s.user_id, &reason).await
+    orders::void_open_order(
+        &state.db,
+        &s.branch_id,
+        &state.device_id,
+        &order_id,
+        &s.user_id,
+        &reason,
+    )
+    .await
 }
 
 #[tauri::command]
@@ -341,12 +413,19 @@ pub async fn backup_now(state: State<'_, AppState>) -> AppResult<serde_json::Val
 }
 
 #[tauri::command]
-pub async fn restore_backup(state: State<'_, AppState>, backup_path: String) -> AppResult<serde_json::Value> {
+pub async fn restore_backup(
+    state: State<'_, AppState>,
+    backup_path: String,
+) -> AppResult<serde_json::Value> {
     let s = actor(&state)?;
     if s.role != "admin" && !s.is_system_admin {
         return Err(AppError::Forbidden("restore requires admin".into()));
     }
-    crate::backup::stage_restore(&std::path::PathBuf::from(backup_path), &state.app_data_dir.join("branch.sqlite")).await
+    crate::backup::stage_restore(
+        &std::path::PathBuf::from(backup_path),
+        &state.app_data_dir.join("branch.sqlite"),
+    )
+    .await
 }
 
 #[tauri::command]

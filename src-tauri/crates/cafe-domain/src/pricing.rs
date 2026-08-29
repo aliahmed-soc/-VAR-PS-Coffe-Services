@@ -39,7 +39,11 @@ pub fn linear_charge_minor(rate_minor_per_hour: Minor, duration_seconds: i64) ->
     rate_minor_per_hour.saturating_mul(duration_seconds) / 3600
 }
 
-pub fn calculate(snapshot: &PricingSnapshot, started_at_unix: i64, ended_at_unix: i64) -> PricingResult {
+pub fn calculate(
+    snapshot: &PricingSnapshot,
+    started_at_unix: i64,
+    ended_at_unix: i64,
+) -> PricingResult {
     let mut seconds = duration_seconds(started_at_unix, ended_at_unix);
     if let Some(inc) = snapshot.billing_increment_seconds {
         if inc > 0 && seconds > 0 {

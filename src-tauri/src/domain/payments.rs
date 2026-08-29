@@ -30,10 +30,12 @@ pub async fn take_cash(
     .bind(branch_id)
     .fetch_optional(&mut *tx)
     .await?;
-    let Some((status, product, gaming, discount, tax_minor, tax_rate_bps, order_type)) = order else {
+    let Some((status, product, gaming, discount, tax_minor, tax_rate_bps, order_type)) = order
+    else {
         return Err(AppError::NotFound("order".into()));
     };
-    tax::reject_negative_tax(tax_minor, tax_rate_bps).map_err(|_| AppError::domain("negative tax rejected"))?;
+    tax::reject_negative_tax(tax_minor, tax_rate_bps)
+        .map_err(|_| AppError::domain("negative tax rejected"))?;
     if status == "paid" {
         return Err(AppError::Conflict("order already paid".into()));
     }
@@ -42,12 +44,11 @@ pub async fn take_cash(
     }
 
     if order_type == "gaming" {
-        let sess: Option<String> = sqlx::query_scalar(
-            "SELECT status FROM gaming_sessions WHERE order_id = ?",
-        )
-        .bind(order_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let sess: Option<String> =
+            sqlx::query_scalar("SELECT status FROM gaming_sessions WHERE order_id = ?")
+                .bind(order_id)
+                .fetch_optional(&mut *tx)
+                .await?;
         if let Some(s) = sess {
             if s == "active" {
                 return Err(AppError::Conflict("stop the session before payment".into()));
@@ -55,17 +56,22 @@ pub async fn take_cash(
         }
     }
 
-    let subtotal = tax::subtotal(product, gaming).map_err(|_| AppError::domain("subtotal overflow"))?;
-    let due = tax::total(subtotal, tax_minor, discount).map_err(|_| AppError::domain("total overflow"))?;
-    let change = money::change(tendered_minor, due).map_err(|_| AppError::domain("cash tendered is less than amount due"))?;
+    let subtotal =
+        tax::subtotal(product, gaming).map_err(|_| AppError::domain("subtotal overflow"))?;
+    let due = tax::total(subtotal, tax_minor, discount)
+        .map_err(|_| AppError::domain("total overflow"))?;
+    let change = money::change(tendered_minor, due)
+        .map_err(|_| AppError::domain("cash tendered is less than amount due"))?;
     let payment_id = Uuid::new_v4().to_string();
     let now = Utc::now();
     let now_s = now.to_rfc3339();
     let day = now.format("%Y%m%d");
-    let seq: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM orders WHERE branch_id = ? AND receipt_number IS NOT NULL")
-        .bind(branch_id)
-        .fetch_one(&mut *tx)
-        .await?;
+    let seq: i64 = sqlx::query_scalar(
+        "SELECT COUNT(*) FROM orders WHERE branch_id = ? AND receipt_number IS NOT NULL",
+    )
+    .bind(branch_id)
+    .fetch_one(&mut *tx)
+    .await?;
     let receipt_number = format!("B-{}-{:04}", day, seq + 1);
 
     let receipt_snapshot = serde_json::json!({
@@ -99,7 +105,15 @@ pub async fn take_cash(
         "cashier_id": user_id,
         "paid_at": now_s
     });
-    let out_pay = outbox::enqueue(&mut tx, device_id, branch_id, "payment.captured", &payment_id, payload_pay.clone()).await?;
+    let out_pay = outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "payment.captured",
+        &payment_id,
+        payload_pay.clone(),
+    )
+    .await?;
 
     sqlx::query(
         "INSERT INTO payments (
@@ -144,7 +158,15 @@ pub async fn take_cash(
         "tax_rate_bps": tax_rate_bps,
         "discount_minor": discount
     });
-    outbox::enqueue(&mut tx, device_id, branch_id, "order.paid", order_id, payload_order.clone()).await?;
+    outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "order.paid",
+        order_id,
+        payload_order.clone(),
+    )
+    .await?;
 
     sqlx::query(
         "UPDATE orders SET
@@ -171,7 +193,18 @@ pub async fn take_cash(
     .execute(&mut *tx)
     .await?;
 
-    insert_audit(&mut tx, branch_id, user_id, device_id, "order.paid", "order", order_id, None, Some(&payload_order)).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "order.paid",
+        "order",
+        order_id,
+        None,
+        Some(&payload_order),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload_order)
 }
@@ -188,14 +221,17 @@ pub async fn reverse_payment(
         return Err(AppError::domain("reversal requires a reason"));
     }
     let mut tx = pool.begin().await?;
-    let status: String = sqlx::query_scalar("SELECT status FROM orders WHERE id = ? AND branch_id = ?")
-        .bind(order_id)
-        .bind(branch_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound("order".into()))?;
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM orders WHERE id = ? AND branch_id = ?")
+            .bind(order_id)
+            .bind(branch_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound("order".into()))?;
     if status != "paid" {
-        return Err(AppError::Conflict("only paid orders can be reversed".into()));
+        return Err(AppError::Conflict(
+            "only paid orders can be reversed".into(),
+        ));
     }
 
     let parent: (String, i64) = sqlx::query_as(
@@ -218,7 +254,15 @@ pub async fn reverse_payment(
         "reversed_by": user_id,
         "reason": reason
     });
-    let out = outbox::enqueue(&mut tx, device_id, branch_id, "payment.reversed", &reversal_id, payload.clone()).await?;
+    let out = outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "payment.reversed",
+        &reversal_id,
+        payload.clone(),
+    )
+    .await?;
 
     sqlx::query("UPDATE payments SET status = 'reversed' WHERE id = ?")
         .bind(&parent.0)
@@ -258,7 +302,18 @@ pub async fn reverse_payment(
     .execute(&mut *tx)
     .await?;
 
-    insert_audit(&mut tx, branch_id, user_id, device_id, "payment.reversed", "payment", &parent.0, None, Some(&payload)).await?;
+    insert_audit(
+        &mut tx,
+        branch_id,
+        user_id,
+        device_id,
+        "payment.reversed",
+        "payment",
+        &parent.0,
+        None,
+        Some(&payload),
+    )
+    .await?;
     tx.commit().await?;
     Ok(payload)
 }

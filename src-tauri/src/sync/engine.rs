@@ -46,9 +46,11 @@ impl SyncEngine {
         .await
         .unwrap_or(0);
         if recon == 1 {
-            if let (Some(cfg), Some(token), Some(branch)) =
-                (transport::env_config(), sessions.access_token(), sessions.branch_id())
-            {
+            if let (Some(cfg), Some(token), Some(branch)) = (
+                transport::env_config(),
+                sessions.access_token(),
+                sessions.branch_id(),
+            ) {
                 let after = "1970-01-01T00:00:00Z";
                 match transport::pull_branch_since(&cfg, &token, &branch, after).await {
                     Ok(_) => {
@@ -91,11 +93,19 @@ impl SyncEngine {
                 p_payload_hash: row.payload_hash.clone(),
             };
             match transport::apply_domain_event(&cfg, &token, &req).await {
-                Ok(result) if result.status == "applied" || result.status == "already_processed" => {
+                Ok(result)
+                    if result.status == "applied" || result.status == "already_processed" =>
+                {
                     outbox::mark_synced(&self.pool, &row.event_id).await?;
                 }
                 Ok(other) => {
-                    outbox::mark_retry(&self.pool, &row.event_id, &format!("{:?}", other.status), row.attempt_count).await?;
+                    outbox::mark_retry(
+                        &self.pool,
+                        &row.event_id,
+                        &format!("{:?}", other.status),
+                        row.attempt_count,
+                    )
+                    .await?;
                     break;
                 }
                 Err(e) => {
@@ -122,12 +132,11 @@ pub async fn status(pool: &SqlitePool) -> AppResult<serde_json::Value> {
     )
     .fetch_one(pool)
     .await?;
-    let recon: i64 = sqlx::query_scalar(
-        "SELECT restore_reconciliation_required FROM sync_state WHERE id = 1",
-    )
-    .fetch_one(pool)
-    .await
-    .unwrap_or(0);
+    let recon: i64 =
+        sqlx::query_scalar("SELECT restore_reconciliation_required FROM sync_state WHERE id = 1")
+            .fetch_one(pool)
+            .await
+            .unwrap_or(0);
     let last: Option<String> =
         sqlx::query_scalar("SELECT last_successful_push_at FROM sync_state WHERE id = 1")
             .fetch_optional(pool)

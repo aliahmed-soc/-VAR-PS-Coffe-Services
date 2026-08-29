@@ -64,10 +64,12 @@ pub async fn enqueue(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query("UPDATE sync_state SET pending_count = pending_count + 1, updated_at = ? WHERE id = 1")
-        .bind(&now)
-        .execute(&mut *tx)
-        .await?;
+    sqlx::query(
+        "UPDATE sync_state SET pending_count = pending_count + 1, updated_at = ? WHERE id = 1",
+    )
+    .bind(&now)
+    .execute(&mut *tx)
+    .await?;
 
     Ok(OutboxRow {
         event_id,
@@ -115,10 +117,12 @@ pub fn next_backoff_secs(attempt_count: i64) -> i64 {
 
 pub async fn mark_synced(pool: &SqlitePool, event_id: &str) -> AppResult<()> {
     let now = Utc::now().to_rfc3339();
-    sqlx::query("UPDATE sync_outbox SET sync_status = 'synced', last_error = NULL WHERE event_id = ?")
-        .bind(event_id)
-        .execute(pool)
-        .await?;
+    sqlx::query(
+        "UPDATE sync_outbox SET sync_status = 'synced', last_error = NULL WHERE event_id = ?",
+    )
+    .bind(event_id)
+    .execute(pool)
+    .await?;
     sqlx::query(
         "UPDATE sync_state SET pending_count = (
             SELECT COUNT(*) FROM sync_outbox WHERE sync_status IN ('pending','failed','sending')
@@ -131,7 +135,12 @@ pub async fn mark_synced(pool: &SqlitePool, event_id: &str) -> AppResult<()> {
     Ok(())
 }
 
-pub async fn mark_retry(pool: &SqlitePool, event_id: &str, error: &str, attempt_count: i64) -> AppResult<()> {
+pub async fn mark_retry(
+    pool: &SqlitePool,
+    event_id: &str,
+    error: &str,
+    attempt_count: i64,
+) -> AppResult<()> {
     let delay = next_backoff_secs(attempt_count + 1);
     let next = (Utc::now() + chrono::Duration::seconds(delay)).to_rfc3339();
     sqlx::query(

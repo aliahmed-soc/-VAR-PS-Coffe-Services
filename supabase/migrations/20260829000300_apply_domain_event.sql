@@ -18,6 +18,15 @@ DECLARE
   v_last bigint;
   v_existing sync_receipts%ROWTYPE;
   v_device devices%ROWTYPE;
+  v_order orders%ROWTYPE;
+  v_applied bigint;
+  v_tendered bigint;
+  v_change bigint;
+  v_total bigint;
+  v_snap jsonb;
+  v_snap_tax bigint;
+  v_snap_rate integer;
+  v_snap_sub bigint;
 BEGIN
   IF auth.uid() IS NULL THEN
     RAISE EXCEPTION 'not_authenticated' USING ERRCODE = '28000';
@@ -230,7 +239,71 @@ BEGIN
         SELECT product_id FROM order_items WHERE id = (p_payload->>'order_item_id')::uuid
       );
 
-    WHEN 'order.paid', 'payment.captured' THEN
+    WHEN 'payment.captured' THEN
+      -- Sequencing/audit only. Must not close the sale or write a captured payment.
+      SELECT * INTO v_order
+      FROM orders
+      WHERE id = (p_payload->>'order_id')::uuid
+      FOR UPDATE;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'order_not_found' USING ERRCODE = 'P0002';
+      END IF;
+      IF v_order.branch_id <> p_branch_id THEN
+        RAISE EXCEPTION 'branch_mismatch' USING ERRCODE = '42501';
+      END IF;
+      IF v_order.status NOT IN ('open', 'checkout_pending') THEN
+        RAISE EXCEPTION 'order_not_payable' USING ERRCODE = 'P0001';
+      END IF;
+      v_applied := COALESCE((p_payload->>'amount_applied_minor')::bigint, -1);
+      v_tendered := COALESCE((p_payload->>'amount_tendered_minor')::bigint, -1);
+      IF v_applied < 0 OR v_tendered < v_applied THEN
+        RAISE EXCEPTION 'amount_mismatch' USING ERRCODE = '22023';
+      END IF;
+      UPDATE orders
+      SET status = 'checkout_pending'
+      WHERE id = v_order.id AND status = 'open';
+
+    WHEN 'order.paid' THEN
+      SELECT * INTO v_order
+      FROM orders
+      WHERE id = (p_payload->>'order_id')::uuid
+      FOR UPDATE;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'order_not_found' USING ERRCODE = 'P0002';
+      END IF;
+      IF v_order.branch_id <> p_branch_id THEN
+        RAISE EXCEPTION 'branch_mismatch' USING ERRCODE = '42501';
+      END IF;
+      IF v_order.status <> 'checkout_pending' THEN
+        RAISE EXCEPTION 'order_not_checkout_pending' USING ERRCODE = 'P0001';
+      END IF;
+      IF v_order.subtotal_minor + v_order.tax_minor - v_order.discount_minor <> v_order.total_minor THEN
+        RAISE EXCEPTION 'total_identity' USING ERRCODE = '22023';
+      END IF;
+
+      v_snap := COALESCE(p_payload->'receipt_snapshot', '{}'::jsonb);
+      -- Copy snapshot tax. Never derive tax from tax_rate_bps.
+      v_snap_tax := COALESCE((v_snap->>'tax_minor')::bigint, (p_payload->>'tax_minor')::bigint, v_order.tax_minor);
+      v_snap_rate := COALESCE((v_snap->>'tax_rate_bps')::integer, (p_payload->>'tax_rate_bps')::integer, v_order.tax_rate_bps);
+      v_snap_sub := COALESCE((v_snap->>'subtotal_minor')::bigint, (p_payload->>'subtotal_minor')::bigint, v_order.subtotal_minor);
+      v_total := COALESCE((p_payload->>'total_minor')::bigint, (v_snap->>'total_minor')::bigint, v_order.total_minor);
+      v_applied := (p_payload->>'amount_applied_minor')::bigint;
+      v_tendered := (p_payload->>'amount_tendered_minor')::bigint;
+      v_change := (p_payload->>'change_minor')::bigint;
+
+      IF v_snap_sub + v_snap_tax - v_order.discount_minor <> v_total THEN
+        RAISE EXCEPTION 'total_identity' USING ERRCODE = '22023';
+      END IF;
+      IF v_applied IS NULL OR v_tendered IS NULL OR v_change IS NULL THEN
+        RAISE EXCEPTION 'amount_mismatch' USING ERRCODE = '22023';
+      END IF;
+      IF v_applied <> v_total OR v_tendered < v_applied OR v_change <> (v_tendered - v_applied) THEN
+        RAISE EXCEPTION 'amount_mismatch' USING ERRCODE = '22023';
+      END IF;
+      IF v_order.receipt_snapshot IS NOT NULL THEN
+        RAISE EXCEPTION 'receipt_already_stored' USING ERRCODE = 'P0001';
+      END IF;
+
       INSERT INTO payments (
         id, branch_id, order_id, payment_method_id, payment_type,
         amount_due_minor, amount_tendered_minor, amount_applied_minor, change_minor,
@@ -238,35 +311,59 @@ BEGIN
       ) VALUES (
         (p_payload->>'payment_id')::uuid,
         p_branch_id,
-        (p_payload->>'order_id')::uuid,
+        v_order.id,
         COALESCE((p_payload->>'payment_method_id')::uuid, '11111111-1111-1111-1111-111111111111'),
         'sale',
-        (p_payload->>'amount_due_minor')::bigint,
-        (p_payload->>'amount_tendered_minor')::bigint,
-        (p_payload->>'amount_applied_minor')::bigint,
-        (p_payload->>'change_minor')::bigint,
+        COALESCE((p_payload->>'amount_due_minor')::bigint, v_total),
+        v_tendered,
+        v_applied,
+        v_change,
         'captured',
-        (p_payload->>'cashier_id')::uuid,
-        (p_payload->>'paid_at')::timestamptz,
+        COALESCE((p_payload->>'closed_by')::uuid, (p_payload->>'cashier_id')::uuid),
+        COALESCE((p_payload->>'closed_at')::timestamptz, (p_payload->>'paid_at')::timestamptz, now()),
         p_event_id
       )
-      ON CONFLICT DO NOTHING;
-      -- Replay copies receipt-snapshot tax. Never derive tax from tax_rate_bps.
+      ON CONFLICT (id) DO NOTHING;
+
+      IF (
+        SELECT COUNT(*) FROM payments
+        WHERE order_id = v_order.id AND payment_type = 'sale' AND status = 'captured'
+      ) <> 1 THEN
+        RAISE EXCEPTION 'duplicate_captured_sale' USING ERRCODE = 'P0001';
+      END IF;
+
       UPDATE orders
       SET status = 'paid',
-          amount_paid_minor = (p_payload->>'amount_applied_minor')::bigint,
-          change_minor = (p_payload->>'change_minor')::bigint,
-          tax_minor = COALESCE((p_payload->'receipt_snapshot'->>'tax_minor')::bigint, (p_payload->>'tax_minor')::bigint, tax_minor),
-          tax_rate_bps = COALESCE((p_payload->'receipt_snapshot'->>'tax_rate_bps')::integer, (p_payload->>'tax_rate_bps')::integer, tax_rate_bps),
-          subtotal_minor = COALESCE((p_payload->'receipt_snapshot'->>'subtotal_minor')::bigint, (p_payload->>'subtotal_minor')::bigint, subtotal_minor),
-          total_minor = COALESCE((p_payload->>'total_minor')::bigint, (p_payload->'receipt_snapshot'->>'total_minor')::bigint, total_minor),
-          receipt_number = COALESCE(p_payload->>'receipt_number', receipt_number),
-          receipt_snapshot = COALESCE(p_payload->'receipt_snapshot', receipt_snapshot),
+          amount_paid_minor = v_applied,
+          change_minor = v_change,
+          tax_minor = v_snap_tax,
+          tax_rate_bps = v_snap_rate,
+          subtotal_minor = v_snap_sub,
+          total_minor = v_total,
+          receipt_number = p_payload->>'receipt_number',
+          receipt_snapshot = v_snap,
           closed_by = COALESCE((p_payload->>'closed_by')::uuid, (p_payload->>'cashier_id')::uuid),
-          closed_at = (p_payload->>'closed_at')::timestamptz
-      WHERE id = (p_payload->>'order_id')::uuid AND branch_id = p_branch_id;
+          closed_at = COALESCE((p_payload->>'closed_at')::timestamptz, (p_payload->>'paid_at')::timestamptz, now())
+      WHERE id = v_order.id AND branch_id = p_branch_id AND status = 'checkout_pending';
+
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'order_close_failed' USING ERRCODE = 'P0001';
+      END IF;
 
     WHEN 'payment.reversed' THEN
+      SELECT * INTO v_order
+      FROM orders
+      WHERE id = (p_payload->>'order_id')::uuid
+      FOR UPDATE;
+      IF NOT FOUND THEN
+        RAISE EXCEPTION 'order_not_found' USING ERRCODE = 'P0002';
+      END IF;
+      IF v_order.branch_id <> p_branch_id THEN
+        RAISE EXCEPTION 'branch_mismatch' USING ERRCODE = '42501';
+      END IF;
+      IF v_order.status <> 'paid' THEN
+        RAISE EXCEPTION 'order_not_paid' USING ERRCODE = 'P0001';
+      END IF;
       UPDATE payments
       SET status = 'reversed'
       WHERE id = (p_payload->>'parent_payment_id')::uuid

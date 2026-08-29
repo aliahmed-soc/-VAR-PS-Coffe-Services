@@ -22,7 +22,8 @@ async fn migrations_and_full_sale_flow() {
     assert_eq!(inventory::stock(&pool, "b1", "p-coke").await.unwrap(), 48);
     assert_eq!(inventory::stock(&pool, "b2", "p-coke").await.unwrap(), 80);
 
-    let denied = inventory::add_product_to_order(&pool, "b1", "d1", &order_id, "p-coke", 100, "u-c1").await;
+    let denied =
+        inventory::add_product_to_order(&pool, "b1", "d1", &order_id, "p-coke", 100, "u-c1").await;
     assert!(denied.is_err(), "negative stock must be blocked");
 
     let stop = gaming::stop_session(&pool, "b1", "d1", &session_id, "u-c1")
@@ -65,7 +66,9 @@ async fn migrations_and_full_sale_flow() {
     assert_eq!(snap["tax_minor"], 0);
     assert_eq!(snap["tax_rate_bps"], 0);
     assert_eq!(
-        playstation_cafe_lib::domain::tax::replay_tax(&snap, 1400).unwrap().tax_minor,
+        playstation_cafe_lib::domain::tax::replay_tax(&snap, 1400)
+            .unwrap()
+            .tax_minor,
         0,
         "sync replay must not recalculate tax"
     );
@@ -82,16 +85,38 @@ async fn migrations_and_full_sale_flow() {
     .await;
     assert!(negative.is_err(), "negative tax is rejected");
 
-    let pending: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM sync_outbox WHERE sync_status = 'pending'")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    assert!(pending >= 4, "outbox must record domain events, got {pending}");
+    let pay_types: Vec<String> = sqlx::query_scalar(
+        "SELECT event_type FROM sync_outbox
+         WHERE device_id = 'd1' AND event_type IN ('payment.captured','order.paid')
+         ORDER BY sequence",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert!(pay_types.len() >= 2);
+    for pair in pay_types.chunks(2) {
+        assert_eq!(
+            pair,
+            ["payment.captured".to_string(), "order.paid".to_string()]
+        );
+    }
 
-    let seqs: Vec<i64> = sqlx::query_scalar("SELECT sequence FROM sync_outbox WHERE device_id = 'd1' ORDER BY sequence")
-        .fetch_all(&pool)
-        .await
-        .unwrap();
+    let pending: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM sync_outbox WHERE sync_status = 'pending'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        pending >= 4,
+        "outbox must record domain events, got {pending}"
+    );
+
+    let seqs: Vec<i64> = sqlx::query_scalar(
+        "SELECT sequence FROM sync_outbox WHERE device_id = 'd1' ORDER BY sequence",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     for pair in seqs.windows(2) {
         assert_eq!(pair[1], pair[0] + 1, "local_sequence must be contiguous");
     }
