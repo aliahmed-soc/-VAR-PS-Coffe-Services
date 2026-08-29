@@ -84,6 +84,12 @@ BEGIN
       );
 
     WHEN 'session.started' THEN
+      IF COALESCE(p_payload->'pricing_snapshot'->>'rule_type', '') <> 'linear' THEN
+        RAISE EXCEPTION 'mvp_linear_pricing_required';
+      END IF;
+      IF COALESCE((p_payload->'pricing_snapshot'->>'rate_minor_per_hour')::bigint, -1) < 0 THEN
+        RAISE EXCEPTION 'mvp_linear_rate_required';
+      END IF;
       INSERT INTO gaming_sessions (
         id, branch_id, station_id, order_id, status, started_at,
         pricing_rule_id, pricing_snapshot, started_by

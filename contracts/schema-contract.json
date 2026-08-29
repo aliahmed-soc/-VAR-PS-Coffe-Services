@@ -10,6 +10,12 @@
     "tax_rate_bps",
     "total_minor"
   ],
+  "pricing_mvp": {
+    "rule_type": "linear",
+    "formula": "floor(rate_minor_per_hour * duration_seconds / 3600)",
+    "billing_increment": false,
+    "stepped": false
+  },
   "tax_mvp": {
     "tax_minor": 0,
     "tax_rate_bps": 0,

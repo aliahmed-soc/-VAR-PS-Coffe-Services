@@ -92,20 +92,8 @@ pub async fn start_session(
         return Err(AppError::Conflict("station already occupied".into()));
     }
 
-    let rule: Option<(
-        String,
-        String,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        Option<i64>,
-        i64,
-    )> = sqlx::query_as(
-        "SELECT id, rule_type, rate_minor_per_hour, billing_increment_seconds,
-                    base_duration_seconds, base_charge_minor, step_duration_seconds,
-                    step_charge_minor, round_partial_step_up
+    let rule: Option<(String, String, i64)> = sqlx::query_as(
+        "SELECT id, rule_type, rate_minor_per_hour
              FROM pricing_rules
              WHERE branch_id = ? AND retired_at IS NULL
              ORDER BY effective_from DESC LIMIT 1",
@@ -115,21 +103,9 @@ pub async fn start_session(
     .await?;
 
     let (rule_id, snapshot) = match rule {
-        Some((id, rule_type, rate, inc, base_d, base_c, step_d, step_c, round_up)) => {
-            let snap = PricingSnapshot {
-                rule_type: if rule_type == "stepped" {
-                    pricing::RuleType::Stepped
-                } else {
-                    pricing::RuleType::Linear
-                },
-                rate_minor_per_hour: rate,
-                billing_increment_seconds: inc,
-                base_duration_seconds: base_d,
-                base_charge_minor: base_c,
-                step_duration_seconds: step_d,
-                step_charge_minor: step_c,
-                round_partial_step_up: round_up != 0,
-            };
+        Some((id, rule_type, rate)) => {
+            let snap = pricing::mvp_snapshot(&rule_type, rate)
+                .map_err(|e| AppError::domain(e.to_string()))?;
             (id, snap)
         }
         None => {
@@ -242,7 +218,8 @@ pub async fn live_charge(pool: &SqlitePool, session_id: &str) -> AppResult<serde
     let now = Utc::now();
     let anomaly = observe_clock(session_id, started, now);
     let snap: PricingSnapshot = serde_json::from_str(&row.1)?;
-    let result = pricing::calculate(&snap, started.timestamp(), now.timestamp());
+    let result = pricing::calculate(&snap, started.timestamp(), now.timestamp())
+        .map_err(|e| AppError::domain(e.to_string()))?;
     Ok(serde_json::json!({
         "session_id": session_id,
         "status": row.2,
@@ -295,7 +272,8 @@ pub async fn stop_session(
     let started = clock::parse_utc(&started_at).map_err(AppError::domain)?;
     let now = Utc::now();
     let snap: PricingSnapshot = serde_json::from_str(&snap_s)?;
-    let result = pricing::calculate(&snap, started.timestamp(), now.timestamp());
+    let result = pricing::calculate(&snap, started.timestamp(), now.timestamp())
+        .map_err(|e| AppError::domain(e.to_string()))?;
     let anomaly = observe_clock(session_id, started, now);
     forget_clock(session_id);
     let now_s = now.to_rfc3339();
