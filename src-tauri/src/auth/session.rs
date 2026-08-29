@@ -10,6 +10,7 @@ pub struct Session {
     pub access_token: Option<String>,
     pub refresh_token: Option<String>,
     pub offline: bool,
+    pub offline_expires_at: Option<String>,
 }
 
 #[derive(Clone, Default)]

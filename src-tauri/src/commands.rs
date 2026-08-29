@@ -7,7 +7,21 @@ use crate::state::AppState;
 use crate::sync::{engine as sync_engine, transport};
 
 fn actor(state: &AppState) -> AppResult<Session> {
-    state.sessions.require().map_err(AppError::Auth)
+    let session = state.sessions.require().map_err(AppError::Auth)?;
+    if session.offline {
+        let expired = match session.offline_expires_at.as_deref() {
+            Some(exp) => !pin::offline_authorization_valid(exp, chrono::Utc::now())
+                .map_err(AppError::Auth)?,
+            None => true,
+        };
+        if expired {
+            state.sessions.clear();
+            return Err(AppError::Auth(
+                "offline authorization expired; online login required".into(),
+            ));
+        }
+    }
+    Ok(session)
 }
 
 fn wake(state: &AppState) {
@@ -90,6 +104,7 @@ pub async fn login_online(
         access_token: Some(tokens.access_token),
         refresh_token: Some(tokens.refresh_token),
         offline: false,
+        offline_expires_at: None,
     });
     state.sync.notify();
     Ok(
@@ -103,7 +118,7 @@ pub async fn unlock_offline(
     user_id: String,
     pin: String,
 ) -> AppResult<serde_json::Value> {
-    let (name, branch, role) = pin::unlock_offline(&state.db, &user_id, &pin).await?;
+    let (name, branch, role, expires) = pin::unlock_offline(&state.db, &user_id, &pin).await?;
     state.sessions.set(Session {
         user_id: user_id.clone(),
         display_name: name.clone(),
@@ -113,6 +128,7 @@ pub async fn unlock_offline(
         access_token: None,
         refresh_token: None,
         offline: true,
+        offline_expires_at: Some(expires),
     });
     Ok(
         serde_json::json!({ "user_id": user_id, "display_name": name, "branch_id": branch, "role": role, "offline": true }),

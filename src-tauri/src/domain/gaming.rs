@@ -1,13 +1,33 @@
-use chrono::Utc;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use chrono::{DateTime, Utc};
 use serde::Serialize;
 use sqlx::{SqliteConnection, SqlitePool};
 use uuid::Uuid;
 
-use super::clock::{self, elapsed_seconds};
+use super::clock;
 use super::events;
 use super::pricing::{self, PricingSnapshot};
 use crate::error::{AppError, AppResult};
 use crate::sync::outbox;
+
+static LAST_OBSERVED: Mutex<HashMap<String, DateTime<Utc>>> = Mutex::new(HashMap::new());
+
+fn observe_clock(session_id: &str, started: DateTime<Utc>, now: DateTime<Utc>) -> bool {
+    let mut map = LAST_OBSERVED.lock().unwrap_or_else(|e| e.into_inner());
+    let previous = map.get(session_id).copied();
+    let anomaly = clock::session_clock_anomaly(started, previous, now);
+    map.insert(session_id.to_string(), now);
+    anomaly
+}
+
+fn forget_clock(session_id: &str) {
+    LAST_OBSERVED
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .remove(session_id);
+}
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct StationRow {
@@ -219,7 +239,7 @@ pub async fn live_charge(pool: &SqlitePool, session_id: &str) -> AppResult<serde
 
     let started = clock::parse_utc(&row.0).map_err(AppError::domain)?;
     let now = Utc::now();
-    let seconds = elapsed_seconds(started, now);
+    let anomaly = observe_clock(session_id, started, now);
     let snap: PricingSnapshot = serde_json::from_str(&row.1)?;
     let result = pricing::calculate(&snap, started.timestamp(), now.timestamp());
     Ok(serde_json::json!({
@@ -228,7 +248,7 @@ pub async fn live_charge(pool: &SqlitePool, session_id: &str) -> AppResult<serde
         "started_at": row.0,
         "duration_seconds": result.duration_seconds,
         "charge_minor": result.charge_minor,
-        "clock_anomaly": seconds == 0 && now < started,
+        "clock_anomaly": anomaly,
     }))
 }
 
@@ -275,7 +295,8 @@ pub async fn stop_session(
     let now = Utc::now();
     let snap: PricingSnapshot = serde_json::from_str(&snap_s)?;
     let result = pricing::calculate(&snap, started.timestamp(), now.timestamp());
-    let anomaly = now < started;
+    let anomaly = observe_clock(session_id, started, now);
+    forget_clock(session_id);
     let now_s = now.to_rfc3339();
 
     sqlx::query(

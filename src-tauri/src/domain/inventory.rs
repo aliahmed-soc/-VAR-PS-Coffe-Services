@@ -6,6 +6,36 @@ use super::gaming::insert_audit;
 use crate::error::{AppError, AppResult};
 use crate::sync::outbox;
 
+pub(crate) async fn apply_stock_cas(
+    tx: &mut SqliteConnection,
+    branch_id: &str,
+    product_id: &str,
+    expected_qty: i64,
+    expected_version: i64,
+    after: i64,
+    now: &str,
+) -> AppResult<()> {
+    let updated = sqlx::query(
+        "UPDATE inventory_balances
+         SET quantity_on_hand = ?, version = version + 1, updated_at = ?
+         WHERE branch_id = ? AND product_id = ?
+           AND quantity_on_hand = ? AND version = ?",
+    )
+    .bind(after)
+    .bind(now)
+    .bind(branch_id)
+    .bind(product_id)
+    .bind(expected_qty)
+    .bind(expected_version)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated != 1 {
+        return Err(AppError::Conflict("inventory version conflict".into()));
+    }
+    Ok(())
+}
+
 pub async fn add_product_to_order(
     pool: &SqlitePool,
     branch_id: &str,
@@ -49,14 +79,16 @@ pub async fn add_product_to_order(
     .await?
     .ok_or_else(|| AppError::NotFound("product not available at branch".into()))?;
 
-    let stock: i64 = sqlx::query_scalar(
-        "SELECT quantity_on_hand FROM inventory_balances WHERE branch_id = ? AND product_id = ?",
+    let stock_row: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT quantity_on_hand, version FROM inventory_balances WHERE branch_id = ? AND product_id = ?",
     )
     .bind(branch_id)
     .bind(product_id)
     .fetch_optional(&mut *tx)
-    .await?
-    .unwrap_or(0);
+    .await?;
+    let Some((stock, version)) = stock_row else {
+        return Err(AppError::Conflict("insufficient stock".into()));
+    };
     if stock < quantity {
         return Err(AppError::Conflict("insufficient stock".into()));
     }
@@ -90,17 +122,7 @@ pub async fn add_product_to_order(
     .execute(&mut *tx)
     .await?;
 
-    sqlx::query(
-        "UPDATE inventory_balances
-         SET quantity_on_hand = ?, version = version + 1, updated_at = ?
-         WHERE branch_id = ? AND product_id = ?",
-    )
-    .bind(after)
-    .bind(&now)
-    .bind(branch_id)
-    .bind(product_id)
-    .execute(&mut *tx)
-    .await?;
+    apply_stock_cas(&mut tx, branch_id, product_id, stock, version, after, &now).await?;
 
     sqlx::query(
         "UPDATE orders
@@ -208,8 +230,8 @@ pub async fn void_order_item(
         return Err(AppError::Conflict("paid order cannot be modified".into()));
     }
 
-    let stock: i64 = sqlx::query_scalar(
-        "SELECT quantity_on_hand FROM inventory_balances WHERE branch_id = ? AND product_id = ?",
+    let (stock, version): (i64, i64) = sqlx::query_as(
+        "SELECT quantity_on_hand, version FROM inventory_balances WHERE branch_id = ? AND product_id = ?",
     )
     .bind(branch_id)
     .bind(&product_id)
@@ -226,15 +248,7 @@ pub async fn void_order_item(
     .bind(item_id)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
-        "UPDATE inventory_balances SET quantity_on_hand = ?, version = version + 1, updated_at = ? WHERE branch_id = ? AND product_id = ?",
-    )
-    .bind(after)
-    .bind(&now)
-    .bind(branch_id)
-    .bind(&product_id)
-    .execute(&mut *tx)
-    .await?;
+    apply_stock_cas(&mut tx, branch_id, &product_id, stock, version, after, &now).await?;
     sqlx::query(
         "UPDATE orders SET product_subtotal_minor = product_subtotal_minor - ?,
             subtotal_minor = product_subtotal_minor - ? + gaming_subtotal_minor,
@@ -317,35 +331,44 @@ pub async fn adjust(
         _ => return Err(AppError::domain("invalid movement type")),
     }
     let mut tx = pool.begin().await?;
-    let stock: i64 = sqlx::query_scalar(
-        "SELECT quantity_on_hand FROM inventory_balances WHERE branch_id = ? AND product_id = ?",
+    let stock_row: Option<(i64, i64)> = sqlx::query_as(
+        "SELECT quantity_on_hand, version FROM inventory_balances WHERE branch_id = ? AND product_id = ?",
     )
     .bind(branch_id)
     .bind(product_id)
     .fetch_optional(&mut *tx)
-    .await?
-    .unwrap_or(0);
-    let after = stock + quantity_delta;
-    if after < 0 {
-        return Err(AppError::Conflict(
-            "inventory cannot become negative".into(),
-        ));
-    }
-    let now = Utc::now().to_rfc3339();
-    sqlx::query(
-        "INSERT INTO inventory_balances (branch_id, product_id, quantity_on_hand, version, updated_at)
-         VALUES (?, ?, ?, 1, ?)
-         ON CONFLICT(branch_id, product_id) DO UPDATE SET
-           quantity_on_hand = excluded.quantity_on_hand,
-           version = inventory_balances.version + 1,
-           updated_at = excluded.updated_at",
-    )
-    .bind(branch_id)
-    .bind(product_id)
-    .bind(after)
-    .bind(&now)
-    .execute(&mut *tx)
     .await?;
+    let now = Utc::now().to_rfc3339();
+    let after = match stock_row {
+        Some((stock, version)) => {
+            let after = stock + quantity_delta;
+            if after < 0 {
+                return Err(AppError::Conflict(
+                    "inventory cannot become negative".into(),
+                ));
+            }
+            apply_stock_cas(&mut tx, branch_id, product_id, stock, version, after, &now).await?;
+            after
+        }
+        None => {
+            if quantity_delta < 0 {
+                return Err(AppError::Conflict(
+                    "inventory cannot become negative".into(),
+                ));
+            }
+            sqlx::query(
+                "INSERT INTO inventory_balances (branch_id, product_id, quantity_on_hand, version, updated_at)
+                 VALUES (?, ?, ?, 1, ?)",
+            )
+            .bind(branch_id)
+            .bind(product_id)
+            .bind(quantity_delta)
+            .bind(&now)
+            .execute(&mut *tx)
+            .await?;
+            quantity_delta
+        }
+    };
 
     let movement_id = Uuid::new_v4().to_string();
     let payload = serde_json::json!({
@@ -428,4 +451,22 @@ pub async fn ensure_balance_row(
     .execute(tx)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dev;
+
+    #[tokio::test]
+    async fn stale_version_is_rejected() {
+        let pool = crate::database::open_memory().await.unwrap();
+        dev::seed_two_branches(&pool).await.unwrap();
+        let now = Utc::now().to_rfc3339();
+        let mut tx = pool.begin().await.unwrap();
+        let err = apply_stock_cas(&mut tx, "b1", "p-coke", 50, 0, 49, &now).await;
+        assert!(err.is_err(), "stale inventory version must be rejected");
+        tx.rollback().await.unwrap();
+        assert_eq!(stock(&pool, "b1", "p-coke").await.unwrap(), 50);
+    }
 }

@@ -25,6 +25,21 @@ pub fn detect_jump(
     }
 }
 
+pub const LIVE_CHARGE_JUMP_THRESHOLD_SECS: i64 = 30 * 60;
+
+pub fn session_clock_anomaly(
+    started: DateTime<Utc>,
+    previous: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+) -> bool {
+    if now < started {
+        return true;
+    }
+    previous
+        .map(|prev| detect_jump(prev, now, LIVE_CHARGE_JUMP_THRESHOLD_SECS).jump_detected)
+        .unwrap_or(false)
+}
+
 pub fn parse_utc(iso: &str) -> Result<DateTime<Utc>, String> {
     DateTime::parse_from_rfc3339(iso)
         .map(|dt| dt.with_timezone(&Utc))
@@ -64,5 +79,27 @@ mod tests {
         let obs = detect_jump(a, b, 120);
         assert!(obs.jump_detected);
         assert!(obs.jump_seconds < 0);
+    }
+
+    #[test]
+    fn session_anomaly_flags_backward_and_forward_jumps() {
+        let started = Utc.with_ymd_and_hms(2026, 8, 28, 18, 0, 0).unwrap();
+        let now = Utc.with_ymd_and_hms(2026, 8, 28, 18, 5, 0).unwrap();
+        assert!(!session_clock_anomaly(started, None, now));
+        assert!(session_clock_anomaly(
+            started,
+            None,
+            Utc.with_ymd_and_hms(2026, 8, 28, 17, 0, 0).unwrap()
+        ));
+        assert!(session_clock_anomaly(
+            started,
+            Some(now),
+            now + chrono::Duration::minutes(31)
+        ));
+        assert!(!session_clock_anomaly(
+            started,
+            Some(now),
+            now + chrono::Duration::minutes(5)
+        ));
     }
 }
