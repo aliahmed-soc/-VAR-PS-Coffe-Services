@@ -10,6 +10,11 @@ on:
         description: Git ref to package (commit SHA, branch, or tag). Empty uses the workflow file ref.
         required: false
         default: ""
+      require_publishable_key:
+        description: Fail if PSC_SUPABASE_ANON_KEY is missing (UAT production-pointed build)
+        type: boolean
+        required: false
+        default: false
   # Optional later: push tags such as v0.1.0 — still no GitHub Release publish.
   # push:
   #   tags: ["v*"]
@@ -76,10 +81,15 @@ jobs:
         shell: pwsh
         env:
           PSC_SUPABASE_ANON_KEY: ${{ secrets.PSC_SUPABASE_ANON_KEY }}
+          REQUIRE_PUBLISHABLE_KEY: ${{ inputs.require_publishable_key }}
         run: |
           $key = $env:PSC_SUPABASE_ANON_KEY
           if ($key -and ($key.StartsWith('sb_secret_') -or $key -match 'service_role')) {
             throw 'PSC_SUPABASE_ANON_KEY must be a publishable/anon key, never sb_secret or service_role'
+          }
+          $requireKey = $env:REQUIRE_PUBLISHABLE_KEY -eq 'true'
+          if ($requireKey -and -not $key) {
+            throw 'PSC_SUPABASE_ANON_KEY is required for this UAT build'
           }
           if ($key) { Write-Host 'Publishable key present for compile-time release config (value not printed)' }
           else { Write-Host 'No compile-time publishable key; release URL default still applies' }

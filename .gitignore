@@ -40,3 +40,6 @@ credentials.json
 nsis-sha256.txt
 nsis-validation.json
 src-tauri/icons/*.tmp
+
+# Supabase CLI local cache (never a credential store)
+supabase/.temp/
