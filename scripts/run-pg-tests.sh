@@ -15,4 +15,5 @@ psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supa
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/migrations/20260829000300_apply_domain_event.sql"
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/payment/atomicity.sql"
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/tax/tax_identity.sql"
+psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/rls/branch_isolation.sql"
 echo "PostgreSQL contract tests passed"
