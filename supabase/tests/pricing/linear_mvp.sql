@@ -20,7 +20,7 @@ BEGIN
   VALUES (v_user, v_branch, 'admin', true)
   ON CONFLICT (user_id, branch_id) DO NOTHING;
   INSERT INTO devices (id, branch_id, name, device_key, is_active)
-  VALUES (v_device, v_branch, 'Cashier 1', 'dev-key-b1', true)
+  VALUES (v_device, v_branch, 'Pricing cashier', 'dev-key-px', true)
   ON CONFLICT (id) DO NOTHING;
   INSERT INTO stations (id, branch_id, code, display_name, sort_order, is_active)
   VALUES (v_station, v_branch, 'PS1', 'PS1', 1, true)
