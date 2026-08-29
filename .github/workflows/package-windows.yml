@@ -1,0 +1,99 @@
+# Unsigned Windows NSIS installer.
+# Manual / release-validation only — not on every commit.
+# A missing code-signing certificate must not fail this job.
+name: Package Windows NSIS
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to package (commit SHA, branch, or tag). Empty uses the workflow file ref.
+        required: false
+        default: ""
+  # Optional later: push tags such as v0.1.0 — still no GitHub Release publish.
+  # push:
+  #   tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-windows-${{ github.workflow }}-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  nsis:
+    name: Build unsigned NSIS installer
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - name: Checkout exact commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
+      - name: Record packaged revision
+        shell: pwsh
+        run: |
+          $sha = git rev-parse HEAD
+          $short = git rev-parse --short HEAD
+          "PACKAGED_SHA=$sha" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "PACKAGED_SHORT=$short" | Out-File -FilePath $env:GITHUB_ENV -Append
+          Write-Host "Packaging commit $sha"
+
+      - name: Setup Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Rust stable (MSVC)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          targets: x86_64-pc-windows-msvc
+
+      - name: Cache Rust
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install npm dependencies
+        run: npm ci
+
+      - name: Frontend production build
+        run: npm run build
+
+      - name: Relevant tests (contracts + cafe-domain)
+        shell: pwsh
+        run: |
+          npx vitest run
+          cargo test --manifest-path src-tauri/Cargo.toml -p cafe-domain
+
+      - name: Build NSIS installer (unsigned)
+        # Signing secrets are intentionally unset. Do not fail if CERT/KEY are absent.
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ""
+          WINDOWS_CERTIFICATE_THUMBPRINT: ""
+        run: npm run tauri -- build --bundles nsis --config src-tauri/tauri.release.conf.json
+
+      - name: Validate installer + record SHA-256
+        shell: pwsh
+        run: pwsh -File scripts/validate-nsis-artifact.ps1
+
+      - name: Isolated install / upgrade / uninstall smoke
+        shell: pwsh
+        run: pwsh -File scripts/smoke-nsis-install.ps1
+
+      - name: Upload unsigned NSIS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: playstation-cafe-nsis-unsigned-${{ env.PACKAGED_SHORT }}
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            nsis-sha256.txt
+            nsis-validation.json
+          if-no-files-found: error
+          retention-days: 14

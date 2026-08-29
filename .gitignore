@@ -33,5 +33,10 @@ data/
 backups/
 *.pem
 *.p12
+*.pfx
+*.pvk
+*.spc
 credentials.json
+nsis-sha256.txt
+nsis-validation.json
 src-tauri/icons/*.tmp

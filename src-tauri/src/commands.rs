@@ -30,6 +30,9 @@ fn wake(state: &AppState) {
 
 #[tauri::command]
 pub async fn seed_dev_data(state: State<'_, AppState>) -> AppResult<()> {
+    if !cfg!(debug_assertions) {
+        return Err(AppError::Forbidden("seed_dev_data is debug-only".into()));
+    }
     crate::dev::seed_two_branches(&state.db).await
 }
 
@@ -38,6 +41,7 @@ pub async fn app_health(state: State<'_, AppState>) -> AppResult<serde_json::Val
     let sync = sync_engine::status(&state.db).await?;
     Ok(serde_json::json!({
         "ok": true,
+        "debug": cfg!(debug_assertions),
         "device_id": state.device_id,
         "session": state.sessions.get().map(|s| serde_json::json!({
             "user_id": s.user_id,
@@ -46,6 +50,12 @@ pub async fn app_health(state: State<'_, AppState>) -> AppResult<serde_json::Val
             "role": s.role,
             "offline": s.offline
         })),
+        "storage": {
+            "database_file": "branch.sqlite",
+            "device_file": "device_id",
+            "backups_dir": "backups",
+            "survives_upgrade": true
+        },
         "sync": sync
     }))
 }

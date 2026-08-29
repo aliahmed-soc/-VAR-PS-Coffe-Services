@@ -1,10 +1,12 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use sqlx::SqlitePool;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
+
+pub const RETAINED_BACKUPS: usize = 14;
 
 pub async fn backup_now(pool: &SqlitePool, dest_dir: &PathBuf) -> AppResult<serde_json::Value> {
     std::fs::create_dir_all(dest_dir)?;
@@ -31,11 +33,31 @@ pub async fn backup_now(pool: &SqlitePool, dest_dir: &PathBuf) -> AppResult<serd
     if check != "ok" {
         return Err(AppError::Other(format!("backup integrity failed: {check}")));
     }
+    let pruned = prune_backups(dest_dir).unwrap_or(0);
     Ok(serde_json::json!({
         "path": dest_s,
         "verified": true,
-        "backup_id": Uuid::new_v4().to_string()
+        "backup_id": Uuid::new_v4().to_string(),
+        "retain": RETAINED_BACKUPS,
+        "pruned": pruned
     }))
+}
+
+/// Keep the newest timestamped backups; delete older `.sqlite` files.
+pub fn prune_backups(dest_dir: &Path) -> std::io::Result<usize> {
+    let mut files: Vec<PathBuf> = std::fs::read_dir(dest_dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("sqlite"))
+        .collect();
+    files.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+    let mut pruned = 0;
+    for stale in files.into_iter().skip(RETAINED_BACKUPS) {
+        if std::fs::remove_file(&stale).is_ok() {
+            pruned += 1;
+        }
+    }
+    Ok(pruned)
 }
 
 pub async fn stage_restore(
@@ -95,4 +117,26 @@ pub async fn mark_restore_reconcile(pool: &SqlitePool) -> AppResult<()> {
     .execute(pool)
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn prune_keeps_newest_fourteen() {
+        let dir = std::env::temp_dir().join(format!("psc-backup-prune-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for i in 0..16 {
+            std::fs::write(dir.join(format!("branch-20260829T{i:06}Z.sqlite")), b"x").unwrap();
+        }
+        let pruned = prune_backups(&dir).unwrap();
+        assert_eq!(pruned, 2);
+        let left: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .collect();
+        assert_eq!(left.len(), RETAINED_BACKUPS);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

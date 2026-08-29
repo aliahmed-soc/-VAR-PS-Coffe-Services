@@ -6,7 +6,29 @@ use tokio::sync::Notify;
 
 use super::{outbox, transport};
 use crate::auth::session::SessionStore;
-use crate::error::AppResult;
+use crate::auth::supabase_auth;
+use crate::error::{AppError, AppResult};
+
+fn is_unauthorized(err: &AppError) -> bool {
+    let msg = err.to_string();
+    msg.contains("401") || msg.contains("unauthorized") || msg.contains("jwt expired")
+}
+
+async fn refresh_session(sessions: &SessionStore, cfg: &transport::SupabaseConfig) -> bool {
+    let Some(refresh_token) = sessions.refresh_token() else {
+        return false;
+    };
+    match supabase_auth::refresh(cfg, &refresh_token).await {
+        Ok(tokens) => {
+            sessions.update_tokens(tokens.access_token, tokens.refresh_token);
+            true
+        }
+        Err(_) => {
+            tracing::warn!("token refresh failed");
+            false
+        }
+    }
+}
 
 pub struct SyncEngine {
     pool: SqlitePool,
@@ -56,6 +78,21 @@ impl SyncEngine {
                     Ok(snapshot) => {
                         apply_pull_snapshot(&self.pool, &snapshot).await?;
                     }
+                    Err(e) if is_unauthorized(&e) && refresh_session(sessions, &cfg).await => {
+                        if let Some(token) = sessions.access_token() {
+                            match transport::pull_branch_since(&cfg, &token, &branch, &after).await
+                            {
+                                Ok(snapshot) => {
+                                    apply_pull_snapshot(&self.pool, &snapshot).await?;
+                                }
+                                Err(retry) => {
+                                    tracing::warn!("pull-before-push blocked after refresh");
+                                    let _ = retry;
+                                    return Ok(());
+                                }
+                            }
+                        }
+                    }
                     Err(e) => {
                         tracing::warn!("pull-before-push blocked: {e}");
                         return Ok(());
@@ -88,7 +125,16 @@ impl SyncEngine {
                 p_payload: payload,
                 p_payload_hash: row.payload_hash.clone(),
             };
-            match transport::apply_domain_event(&cfg, &token, &req).await {
+            let token = sessions.access_token().unwrap_or_else(|| token.clone());
+            let applied = match transport::apply_domain_event(&cfg, &token, &req).await {
+                Ok(result) => Ok(result),
+                Err(e) if is_unauthorized(&e) && refresh_session(sessions, &cfg).await => {
+                    let retry_token = sessions.access_token().unwrap_or(token);
+                    transport::apply_domain_event(&cfg, &retry_token, &req).await
+                }
+                Err(e) => Err(e),
+            };
+            match applied {
                 Ok(result)
                     if result.status == "applied" || result.status == "already_processed" =>
                 {

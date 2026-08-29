@@ -41,6 +41,18 @@ impl SessionStore {
         self.get().and_then(|s| s.access_token)
     }
 
+    pub fn refresh_token(&self) -> Option<String> {
+        self.get().and_then(|s| s.refresh_token)
+    }
+
+    pub fn update_tokens(&self, access_token: String, refresh_token: String) {
+        let mut guard = self.inner.lock().expect("session lock");
+        if let Some(session) = guard.as_mut() {
+            session.access_token = Some(access_token);
+            session.refresh_token = Some(refresh_token);
+        }
+    }
+
     pub fn branch_id(&self) -> Option<String> {
         self.get().map(|s| s.branch_id)
     }

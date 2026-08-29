@@ -16,6 +16,7 @@ type Station = {
 
 type Health = {
   ok: boolean;
+  debug?: boolean;
   device_id: string;
   session?: {
     display_name: string;
@@ -211,9 +212,11 @@ export default function App() {
         {header}
         <main className="mx-auto mt-10 max-w-md space-y-4 rounded border border-slate-700 p-6">
           {error ? <p className="text-red-400">{error}</p> : null}
-          <button className="w-full rounded bg-slate-700 py-2" onClick={() => run(() => invoke("seed_dev_data"))}>
-            {t("seedDev")}
-          </button>
+          {health?.debug ? (
+            <button className="w-full rounded bg-slate-700 py-2" onClick={() => run(() => invoke("seed_dev_data"))}>
+              {t("seedDev")}
+            </button>
+          ) : null}
           <input className="w-full rounded bg-slate-900 p-2" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("email")} />
           <input className="w-full rounded bg-slate-900 p-2" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={t("password")} />
           <input className="w-full rounded bg-slate-900 p-2" value={pin} onChange={(e) => setPin(e.target.value)} placeholder={t("pin")} />

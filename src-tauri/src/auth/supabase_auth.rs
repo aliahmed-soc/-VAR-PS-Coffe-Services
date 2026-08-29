@@ -2,7 +2,7 @@ use reqwest::header::{AUTHORIZATION, CONTENT_TYPE};
 use serde::Deserialize;
 
 use crate::error::{AppError, AppResult};
-use crate::sync::transport::SupabaseConfig;
+use crate::sync::transport::{self, SupabaseConfig};
 
 #[derive(Debug, Deserialize)]
 pub struct TokenResponse {
@@ -22,7 +22,7 @@ pub async fn password_login(
     email: &str,
     password: &str,
 ) -> AppResult<TokenResponse> {
-    let client = reqwest::Client::new();
+    let client = transport::http_client();
     let url = format!(
         "{}/auth/v1/token?grant_type=password",
         cfg.url.trim_end_matches('/')
@@ -41,13 +41,14 @@ pub async fn password_login(
         .await
         .map_err(|e| AppError::Auth(e.to_string()))?;
     if !status.is_success() {
-        return Err(AppError::Auth(format!("login failed: {body}")));
+        let _ = body;
+        return Err(AppError::Auth(format!("login failed ({status})")));
     }
     serde_json::from_str(&body).map_err(|e| AppError::Auth(e.to_string()))
 }
 
 pub async fn refresh(cfg: &SupabaseConfig, refresh_token: &str) -> AppResult<TokenResponse> {
-    let client = reqwest::Client::new();
+    let client = transport::http_client();
     let url = format!(
         "{}/auth/v1/token?grant_type=refresh_token",
         cfg.url.trim_end_matches('/')
@@ -66,7 +67,8 @@ pub async fn refresh(cfg: &SupabaseConfig, refresh_token: &str) -> AppResult<Tok
         .await
         .map_err(|e| AppError::Auth(e.to_string()))?;
     if !status.is_success() {
-        return Err(AppError::Auth(format!("refresh failed: {body}")));
+        let _ = body;
+        return Err(AppError::Auth(format!("refresh failed ({status})")));
     }
     serde_json::from_str(&body).map_err(|e| AppError::Auth(e.to_string()))
 }
@@ -76,7 +78,7 @@ pub async fn fetch_profile(
     access_token: &str,
     user_id: &str,
 ) -> AppResult<serde_json::Value> {
-    let client = reqwest::Client::new();
+    let client = transport::http_client();
     let url = format!(
         "{}/rest/v1/user_profiles?user_id=eq.{user_id}&select=*",
         cfg.url.trim_end_matches('/')

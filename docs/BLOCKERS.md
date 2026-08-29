@@ -1,19 +1,22 @@
 # External blockers
 
-Items that cannot be fully finished in this development environment. Work continues around them.
+Items that cannot be finished in software alone. Work continues around them.
 
-## MSVC linker (`link.exe`)
+## Windows Authenticode certificate
 
-- **Status:** Visual Studio Build Tools 2022 is installed, but the C++ (`VCTools`) workload is missing `link.exe`.
-- **Impact:** `cargo test` for the Tauri crate and `tauri build` need a C linker for bundled SQLite.
-- **Mitigation:** Install/repair `Microsoft.VisualStudio.Workload.VCTools`. Domain tests run with `cargo test -p cafe-domain` (18 passing).
-- **Not a stop:** schemas, event catalog, cashier UI, migrations, and cafe-domain tests are implemented.
+- **Status:** No publisher certificate in this environment (correct).
+- **Impact:** CI produces an **unsigned** NSIS installer. Windows SmartScreen will warn. Not production-distributable until signed.
+- **Not a stop:** Packaging, validation, and smoke install run without a certificate. See `docs/release/signing.md`.
 
-## Hosted Supabase Pro project
+## Hosted Supabase project
 
 - **Status:** No production project credentials in this environment (correct).
-- **Mitigation:** Local Supabase CLI + `.env.example`. Production URL/keys are operator-only.
+- **Mitigation:** Local Supabase CLI + `.env.example`. Production URL + anon key are operator-only. Service-role must never be installed on a cashier PC.
 
-## Thermal printer / physical cash drawer
+## Physical two-branch UAT / peripherals
 
-- Phase 2. Not required for MVP.
+- Final cashier/admin acceptance on real writer PCs. Thermal printer / cash drawer are Phase 2.
+
+## Local MSVC (`link.exe`) on a developer PC
+
+- **Not a packaging blocker.** GitHub Actions `windows-latest` has MSVC and already compiles the Tauri crate. The NSIS installer is built there (`Package Windows NSIS` workflow).

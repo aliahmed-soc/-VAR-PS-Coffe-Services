@@ -29,6 +29,14 @@ npm test
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
+CI on `main`: contracts, cafe-domain, postgres, tauri-windows.
+
+## Windows installer
+
+Do not require a local Visual Studio C++ install. Dispatch **Package Windows NSIS** on GitHub Actions (`workflow_dispatch`). That job builds an unsigned NSIS installer, validates it, records SHA-256, and uploads the artifact. It does not publish a GitHub Release.
+
+Details: [`docs/release/windows-packaging.md`](docs/release/windows-packaging.md). Readiness: [`docs/release/RC-READINESS.md`](docs/release/RC-READINESS.md).
+
 ## License
 
 MIT
