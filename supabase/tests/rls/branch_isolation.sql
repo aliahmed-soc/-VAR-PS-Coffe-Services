@@ -4,9 +4,17 @@ CREATE OR REPLACE FUNCTION public.test_rls_expect_deny(p_sql text, p_why text)
 RETURNS void
 LANGUAGE plpgsql
 AS $$
+DECLARE
+  v_n int;
 BEGIN
   BEGIN
     EXECUTE p_sql;
+    GET DIAGNOSTICS v_n = ROW_COUNT;
+    IF v_n = 0 AND (
+      upper(btrim(p_sql)) LIKE 'UPDATE%' OR upper(btrim(p_sql)) LIKE 'DELETE%'
+    ) THEN
+      RETURN;
+    END IF;
     RAISE EXCEPTION 'expected deny: %', p_why;
   EXCEPTION
     WHEN insufficient_privilege THEN
@@ -284,6 +292,9 @@ BEGIN
     format('UPDATE app_settings SET value = %L WHERE id = %L', '{"x":1}', v_set_global),
     'cashier settings update'
   );
+  IF (SELECT value FROM app_settings WHERE id = v_set_global) IS DISTINCT FROM '{"default":"ar"}'::jsonb THEN
+    RAISE EXCEPTION 'cashier must not mutate global settings';
+  END IF;
 
   BEGIN
     PERFORM public.pull_branch_since(v_b2, now() - interval '1 day');
