@@ -66,13 +66,28 @@ pub async fn take_cash(
     let now = Utc::now();
     let now_s = now.to_rfc3339();
     let day = now.format("%Y%m%d");
+    // receipt_number is globally unique, so the counter has to be per branch and
+    // per day and must never reuse a number. Counting the orders that hold a
+    // receipt did both wrong: a repaid order retires one number and takes
+    // another, after which the count points back at a number already in use, and
+    // two branches paying on the same day both produced the same "B-<day>-0001".
+    let branch_code: String = sqlx::query_scalar("SELECT code FROM branches WHERE id = ?")
+        .bind(branch_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound("branch".into()))?;
+    let prefix = format!("{branch_code}-{day}-");
     let seq: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM orders WHERE branch_id = ? AND receipt_number IS NOT NULL",
+        "SELECT COALESCE(MAX(CAST(substr(receipt_number, ?) AS INTEGER)), 0)
+         FROM orders
+         WHERE branch_id = ? AND receipt_number LIKE ?",
     )
+    .bind(prefix.chars().count() as i64 + 1)
     .bind(branch_id)
+    .bind(format!("{prefix}%"))
     .fetch_one(&mut *tx)
     .await?;
-    let receipt_number = format!("B-{}-{:04}", day, seq + 1);
+    let receipt_number = format!("{prefix}{:04}", seq + 1);
 
     let receipt_snapshot = serde_json::json!({
         "receipt_number": receipt_number,
