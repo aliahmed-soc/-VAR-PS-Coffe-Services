@@ -29,11 +29,11 @@ This UAT installer was compiled with repository secret `PSC_SUPABASE_ANON_KEY` (
 
 Ordinary MVP feature work is stopped. No GitHub Release was published.
 
+Disposable UAT Auth users, bootstrap (UAT1/UAT2), and hosted login/isolation/refresh are in place. Credentials live only at `C:\Users\ali_n\.playstation-cafe-uat\credentials.json` (not in git). The unsigned installer is preserved locally under `C:\Users\ali_n\.playstation-cafe-uat\installer\`. After physical UAT, run `supabase/bootstrap/uat_cleanup.sql`.
+
 ## External / operational remaining
 
-- Create real Supabase Auth users in the dashboard
-- Bootstrap branches, users, roles, stations, device identities, and linear pricing (`supabase/bootstrap/production.sql.template`)
-- Hosted Auth login + refresh validation
 - Clean-Windows physical cashier/admin UAT ([acceptance-checklist.md](acceptance-checklist.md))
 - Windows Authenticode signing after UAT approval
-- Rotate/revoke the previously leaked `sb_secret_...` in the Supabase dashboard (unused by this installer)
+- Replace the UAT-only 3000 minor/hour linear test rate and UAT products before live trading
+- Create real employee Auth users and apply `supabase/bootstrap/production.sql.template` after UAT (do not treat UAT identities as production)
