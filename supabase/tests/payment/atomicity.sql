@@ -13,12 +13,19 @@ DECLARE
   v_e1 uuid := '66666666-6666-4666-8666-666666666666';
   v_e2 uuid := '77777777-7777-4777-8777-777777777777';
   v_e3 uuid := '88888888-8888-4888-8888-888888888888';
+  v_e4 uuid := 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  v_e5 uuid := 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+  v_e6 uuid := 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
+  v_pay2 uuid := 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
   v_cap jsonb;
   v_paid jsonb;
+  v_paid2 jsonb;
   v_rev jsonb;
   v_status text;
+  v_receipt text;
   v_result jsonb;
   v_payments int;
+  v_reversals int;
 BEGIN
   INSERT INTO auth.users (id, email) VALUES (v_user, 'cashier@local') ON CONFLICT DO NOTHING;
   INSERT INTO branches (id, code, name) VALUES (v_branch, 'B1', 'Branch 1') ON CONFLICT (id) DO NOTHING;
@@ -154,6 +161,58 @@ BEGIN
   SELECT COUNT(*) INTO v_payments FROM payments WHERE order_id = v_order AND payment_type = 'sale';
   IF v_payments <> 1 THEN
     RAISE EXCEPTION 'timeout replay created a second payment';
+  END IF;
+
+  -- Reversal must retire the receipt so the corrected repayment can store a new
+  -- one. Before this was fixed the repayment's order.paid died on
+  -- receipt_already_stored forever: the till closed the order locally on a fresh
+  -- receipt while the cloud stayed in checkout_pending on the retired receipt.
+  PERFORM public.apply_domain_event(v_e4, v_branch, v_device, 3, 'payment.reversed', v_rev, 'hash-rev');
+
+  SELECT status, receipt_number INTO v_status, v_receipt FROM orders WHERE id = v_order;
+  IF v_status <> 'checkout_pending' THEN
+    RAISE EXCEPTION 'reversal must return the order to checkout_pending, got %', v_status;
+  END IF;
+  IF v_receipt IS NOT NULL OR (SELECT receipt_snapshot FROM orders WHERE id = v_order) IS NOT NULL THEN
+    RAISE EXCEPTION 'reversal must retire the receipt';
+  END IF;
+  IF (SELECT status FROM payments WHERE id = v_pay) <> 'reversed' THEN
+    RAISE EXCEPTION 'the original sale must survive as reversed history';
+  END IF;
+  SELECT COUNT(*) INTO v_reversals FROM payments WHERE order_id = v_order AND payment_type = 'reversal';
+  IF v_reversals <> 1 THEN
+    RAISE EXCEPTION 'reversal must record exactly one reversal row, got %', v_reversals;
+  END IF;
+
+  v_paid2 := v_paid || jsonb_build_object('payment_id', v_pay2, 'receipt_number', 'B-TEST-0002');
+  PERFORM public.apply_domain_event(
+    v_e5, v_branch, v_device, 4, 'payment.captured',
+    v_cap || jsonb_build_object('payment_id', v_pay2), 'hash-cap2'
+  );
+  PERFORM public.apply_domain_event(v_e6, v_branch, v_device, 5, 'order.paid', v_paid2, 'hash-paid2');
+
+  SELECT status, receipt_number INTO v_status, v_receipt FROM orders WHERE id = v_order;
+  IF v_status <> 'paid' OR v_receipt <> 'B-TEST-0002' THEN
+    RAISE EXCEPTION 'repayment must close the order on a new receipt, got % / %', v_status, v_receipt;
+  END IF;
+  SELECT COUNT(*) INTO v_payments FROM payments
+  WHERE order_id = v_order AND payment_type = 'sale' AND status = 'captured';
+  IF v_payments <> 1 THEN
+    RAISE EXCEPTION 'repayment must leave exactly one captured sale, got %', v_payments;
+  END IF;
+  SELECT COUNT(*) INTO v_payments FROM payments WHERE order_id = v_order;
+  IF v_payments <> 3 THEN
+    RAISE EXCEPTION 'expected reversed sale + reversal + new sale, got %', v_payments;
+  END IF;
+
+  SELECT public.apply_domain_event(v_e6, v_branch, v_device, 5, 'order.paid', v_paid2, 'hash-paid2')
+  INTO v_result;
+  IF v_result->>'status' <> 'already_processed' THEN
+    RAISE EXCEPTION 'replayed repayment must be already_processed';
+  END IF;
+  SELECT COUNT(*) INTO v_payments FROM payments WHERE order_id = v_order;
+  IF v_payments <> 3 THEN
+    RAISE EXCEPTION 'replayed repayment created a fourth payment';
   END IF;
 END;
 $$;

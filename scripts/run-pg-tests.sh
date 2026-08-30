@@ -10,9 +10,11 @@ DB="${PGDATABASE:-playstation_cafe_test}"
 psql -h "$HOST" -p "$PORT" -U "$USER" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS ${DB};"
 psql -h "$HOST" -p "$PORT" -U "$USER" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE ${DB};"
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/harness/00_auth_stub.sql"
-psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/migrations/20260829000100_init.sql"
-psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/migrations/20260829000200_rls.sql"
-psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/migrations/20260829000300_apply_domain_event.sql"
+# Every migration, in order, so a later one that redefines an RPC is what the
+# contracts below actually run against.
+for migration in "$ROOT"/supabase/migrations/*.sql; do
+  psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$migration"
+done
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/payment/atomicity.sql"
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/tax/tax_identity.sql"
 psql -h "$HOST" -p "$PORT" -U "$USER" -d "$DB" -v ON_ERROR_STOP=1 -f "$ROOT/supabase/tests/rls/branch_isolation.sql"

@@ -19,7 +19,19 @@ and the artifact validator now decode JWT role claims (`scripts/cloud-key-guard.
 covered by `tests/contract/cloud-key-guard.test.ts`); the two installer artifacts that
 embedded the key were deleted.
 
-Hosted migrations `20260829000100` / `20260829000200` / `20260829000300` remain applied.
+Physical GUI UAT phase G found a cloud-only defect: `apply_domain_event('payment.reversed')`
+returned the order to `checkout_pending` but left `receipt_number` / `receipt_snapshot` in
+place, and `order.paid` refuses to overwrite a stored receipt. Every repayment after a
+reversal therefore failed on the hosted RPC with `receipt_already_stored` (`400`) and retried
+forever, while the till had already closed the order locally on a fresh receipt. Migration
+`20260831000100_reversal_retires_receipt` makes the reversal retire the receipt and repairs
+the orders the old function already stranded. The desktop binary is unaffected, so no
+rebuild was required. Covered by `supabase/tests/payment/atomicity.sql` (repay after
+reversal) and `tests/contract/payment-atomicity.test.ts`; `scripts/run-pg-tests.sh` now
+applies every migration in order so a later redefinition cannot escape the contracts.
+
+Hosted migrations `20260829000100` / `20260829000200` / `20260829000300` /
+`20260831000100` remain applied.
 UAT Auth users and UAT1/UAT2 reference data remain. Disposable API-acceptance orders/receipts/sequences were reset; inventory baseline is 20.
 
 ## Green / proven

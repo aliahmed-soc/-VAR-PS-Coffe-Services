@@ -1,7 +1,8 @@
-import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
-const apply = readFileSync("supabase/migrations/20260829000300_apply_domain_event.sql", "utf8");
+import { applyDomainEventSql } from "./apply-event-sql";
+
+const apply = applyDomainEventSql();
 
 describe("payment cloud atomicity", () => {
   it("does not close a sale on payment.captured and order.paid together", () => {
@@ -33,5 +34,18 @@ describe("payment cloud atomicity", () => {
     const reversed = apply.split("WHEN 'payment.reversed' THEN")[1].split("WHEN 'order.voided' THEN")[0];
     expect(reversed).toMatch(/order_not_paid/);
     expect(reversed).toMatch(/v_order\.status <> 'paid'/);
+  });
+
+  // Regression: order.paid refuses to overwrite a stored receipt, so a reversal
+  // that left receipt_snapshot behind made every repayment unsyncable.
+  it("retires the receipt on reversal while keeping order.paid immutable", () => {
+    const reversed = apply.split("WHEN 'payment.reversed' THEN")[1].split("WHEN 'order.voided' THEN")[0];
+    expect(reversed).toMatch(/receipt_number = NULL/);
+    expect(reversed).toMatch(/receipt_snapshot = NULL/);
+    expect(reversed).toMatch(/status = 'checkout_pending'/);
+    expect(reversed).toMatch(/'reversal'/);
+
+    const paid = apply.split("WHEN 'order.paid' THEN")[1].split("WHEN 'payment.reversed' THEN")[0];
+    expect(paid).toMatch(/receipt_already_stored/);
   });
 });

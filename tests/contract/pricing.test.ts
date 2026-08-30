@@ -2,9 +2,11 @@ import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
+import { applyDomainEventSql } from "./apply-event-sql";
+
 const sqlite = readFileSync("src-tauri/migrations/sqlite/0001_init.sql", "utf8");
 const postgres = readFileSync("supabase/migrations/20260829000100_init.sql", "utf8");
-const apply = readFileSync("supabase/migrations/20260829000300_apply_domain_event.sql", "utf8");
+const apply = applyDomainEventSql();
 const domain = readFileSync("src-tauri/crates/cafe-domain/src/pricing.rs", "utf8");
 const schema = JSON.parse(readFileSync("contracts/schema-contract.json", "utf8"));
 
