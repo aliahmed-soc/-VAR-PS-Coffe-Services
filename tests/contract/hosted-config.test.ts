@@ -32,7 +32,7 @@ describe("hosted production config guards", () => {
 
   it("keeps packaging from compiling or shipping project secrets", () => {
     expect(validate).toContain("sb_secret_");
-    expect(pkg).toContain("never sb_secret");
+    expect(pkg).toContain("scripts/cloud-key-guard.mjs --env");
     expect(pkg).toContain("PSC_SUPABASE_ANON_KEY");
   });
 });

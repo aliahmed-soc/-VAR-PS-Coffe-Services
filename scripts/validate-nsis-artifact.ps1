@@ -98,6 +98,13 @@ if ($binaryHits.Count -gt 0) {
     throw "Release binary/installer contains secret-like strings: $($binaryHits -join ', ')"
 }
 
+# A legacy Supabase JWT hides its role claim in base64url, so the substring
+# deny-list above cannot see an elevated key that was compiled in.
+node scripts/cloud-key-guard.mjs --scan "$releaseExe" "$($installer.FullName)"
+if ($LASTEXITCODE -ne 0) {
+    throw "Release binary/installer embeds an elevated cloud credential"
+}
+
 $report = [ordered]@{
     installer          = $installer.Name
     installer_bytes    = $installer.Length
@@ -112,6 +119,7 @@ $report = [ordered]@{
     production_ready   = $false
     forbidden_files    = @()
     secret_string_hits = @($binaryHits)
+    elevated_key_scan  = "clean"
 }
 $reportPath = Join-Path $root "nsis-validation.json"
 ($report | ConvertTo-Json -Depth 6) | Set-Content -Path $reportPath -Encoding utf8

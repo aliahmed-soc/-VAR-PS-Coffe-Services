@@ -6,6 +6,19 @@ Packaged HEAD: `da192b3f89ad6c780228471383f810e821736fed`
 
 `24c0bf349b9a2a9a437811df1f8944ec4fd006c7` was superseded: a clean install could authenticate with Supabase but could not resolve a branch because `login_online` read empty local `user_branch_roles`. First-run now downloads RLS-visible reference data in Rust, caches it transactionally, then creates the session and offline PIN.
 
+`da192b3f89ad6c780228471383f810e821736fed` was superseded during physical GUI UAT. The
+`PSC_SUPABASE_ANON_KEY` build secret held the project's legacy `service_role` JWT rather
+than the publishable key. The pre-compile guard only substring-matched `service_role`,
+which a base64url JWT payload never contains, so the elevated key was compiled into the
+installer. The desktop runtime refused it exactly as designed (`elevated_key_forbidden`),
+which surfaced as `auth: cloud not configured` on every GUI login, blocking UAT.
+
+Remediation: the build secret now holds the publishable key; the project's legacy JWT API
+keys are disabled, so the exposed `service_role` JWT is dead (`401`); the pre-compile guard
+and the artifact validator now decode JWT role claims (`scripts/cloud-key-guard.mjs`,
+covered by `tests/contract/cloud-key-guard.test.ts`); the two installer artifacts that
+embedded the key were deleted.
+
 Hosted migrations `20260829000100` / `20260829000200` / `20260829000300` remain applied.
 UAT Auth users and UAT1/UAT2 reference data remain. Disposable API-acceptance orders/receipts/sequences were reset; inventory baseline is 20.
 
