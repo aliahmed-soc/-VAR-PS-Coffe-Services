@@ -4,6 +4,9 @@ import { useTranslation } from "react-i18next";
 
 type Tab = "stations" | "pos" | "sales" | "ops";
 
+/** How often the connectivity/sync badge is re-read from the backend. */
+export const HEALTH_POLL_MS = 5000;
+
 type Station = {
   id: string;
   code: string;
@@ -141,6 +144,18 @@ export default function App() {
 
   useEffect(() => {
     refresh().catch((e) => setError(String(e)));
+  }, []);
+
+  // The sync worker drains the outbox on its own, so the badge has to be re-read
+  // without an operator action. Reading it only inside run() left tills showing
+  // "OFFLINE • n UNSYNCED" indefinitely after every event had been accepted.
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      invoke<Health>("app_health")
+        .then(setHealth)
+        .catch(() => undefined);
+    }, HEALTH_POLL_MS);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {

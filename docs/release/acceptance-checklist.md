@@ -7,8 +7,9 @@ Automated coverage is in GitHub Actions (four required CI jobs + Package Windows
 `24c0bf3` was superseded: clean first-run online reference bootstrap was missing.
 `da192b3` was superseded too: the `PSC_SUPABASE_ANON_KEY` build secret held a legacy
 `service_role` JWT, so the runtime correctly refused it and every hosted login failed
-with `auth: cloud not configured`. Use the newest unsigned UAT installer recorded in
-`RC-READINESS.md`.
+with `auth: cloud not configured`. `d489f70` carried phases A–G of physical UAT and was
+then superseded by the receipt-numbering fix. Use the newest unsigned UAT installer
+recorded in `RC-READINESS.md`.
 
 - UAT emails/passwords: `C:\Users\ali_n\.playstation-cafe-uat\credentials.json` (not in git)
 

@@ -30,6 +30,43 @@ rebuild was required. Covered by `supabase/tests/payment/atomicity.sql` (repay a
 reversal) and `tests/contract/payment-atomicity.test.ts`; `scripts/run-pg-tests.sh` now
 applies every migration in order so a later redefinition cannot escape the contracts.
 
+Physical GUI UAT then found a second blocking defect, this one in the desktop. `take_cash`
+built the receipt number from the count of orders currently holding a receipt, while
+`receipt_number` carries a UNIQUE index that has no branch in it. A repayment retires one
+number and takes another, so the count then points back at a live number: after the phase G
+repayment, every further ticket failed to close with `UNIQUE constraint failed:
+orders.receipt_number`. The same counter also gave two branches the same `B-<day>-0001`,
+which the cloud's global unique index would reject, so a second branch could never converge.
+The counter is now the highest number already issued for that branch and day, and the branch
+code is part of the number. Covered by `src-tauri/tests/receipt_numbering.rs`. The failed
+payment rolled back cleanly (no payment row, no outbox event), which is itself recorded
+evidence for payment atomicity.
+
+A third defect surfaced once the receipt fix was installed. The connectivity badge read
+`app_health` on mount and inside `run()` only, so nothing refreshed it while the sync worker
+drained the outbox in the background: with the hosted database already holding the order and
+the backend reporting `ONLINE • SYNCED`, the till went on displaying `OFFLINE • 2 UNSYNCED`
+for as long as the operator did not touch it. That badge is what a cashier reads before
+closing the shop, so it now polls every `HEALTH_POLL_MS`. Covered by
+`tests/contract/sync-badge.test.ts`.
+
+Known non-blocking defects, deliberately not fixed during UAT:
+
+- `upsert_product` and `upsert_payment_method` in `src-tauri/src/auth/reference.rs` omit
+  `name_ar` (and `barcode`, `image_key`, `requires_reference`) from their `DO UPDATE` lists,
+  so an Arabic name corrected in the cloud never reaches a till that already cached the row.
+  Prices, pricing rate, stock, station names and active flags all do refresh. A fresh
+  install is unaffected.
+- `persist_snapshot` never prunes reference rows for branches the signed-in user is not
+  assigned to, so a device where a multi-branch admin has logged in keeps the other branch's
+  stations and inventory cached. Not an isolation breach: hosted RLS returns nothing
+  cross-branch (`403` on cross-branch writes) and `list_stations` filters by the session
+  branch. The Rust test named `cashier_bootstrap_drops_foreign_branch_rows` only proves
+  those rows are never *cached*, not that they are dropped.
+- The UAT bootstrap's Arabic product names were stored as mojibake because the PowerShell
+  Management-API helper posts its body as ISO-8859-1. Hosted data has been repaired over a
+  UTF-8 client. Production bootstrap must not go through that helper.
+
 Hosted migrations `20260829000100` / `20260829000200` / `20260829000300` /
 `20260831000100` remain applied.
 UAT Auth users and UAT1/UAT2 reference data remain. Disposable API-acceptance orders/receipts/sequences were reset; inventory baseline is 20.
