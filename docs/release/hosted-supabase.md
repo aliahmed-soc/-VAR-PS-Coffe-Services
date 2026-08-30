@@ -53,6 +53,8 @@ IPv4 session pooler for this project (not a credential): host `aws-1-eu-west-1.p
 
 After schema validation: create Auth users in the dashboard, then fill and apply `supabase/bootstrap/production.sql.template`. Operator supplies real emails, display names, station codes, device keys, and linear hourly rates. Do not invent live product inventory here.
 
+Writer-device IDs are **not** invented in advance. On each cashier PC: clean install, first launch (creates `{app_data_dir}/device_id`), close the app before any sale, then register that exact UUID as the branch's one cloud writer via the privileged SQL path. The desktop app must not create cloud devices.
+
 ## GitHub Actions
 
 Repository secrets (never `sb_secret_`):

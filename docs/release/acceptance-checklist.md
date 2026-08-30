@@ -2,15 +2,19 @@
 
 Automated coverage is in GitHub Actions (four required CI jobs + Package Windows NSIS). Hosted Auth login/isolation/refresh for disposable UAT users is already proven from this workspace. This list is only what still needs a physical Windows machine.
 
-## Package (do not rebuild)
+## Package
 
-- Commit: `24c0bf349b9a2a9a437811df1f8944ec4fd006c7`
-- Artifact: `playstation-cafe-nsis-unsigned-24c0bf3`
-- File: `PlayStation Cafe POS_0.1.0_x64-setup.exe`
-- SHA-256: `28c847a3b302969deab9cdb579ea0bfe9b5dfd8721d69c83de3be1093c7cf63c`
-- Run: https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33324667053
-- Local copy (if present): `C:\Users\ali_n\.playstation-cafe-uat\installer\`
-- UAT emails/passwords/device keys: `C:\Users\ali_n\.playstation-cafe-uat\credentials.json` (not in git)
+`24c0bf3` was superseded: clean first-run online reference bootstrap was missing.
+Use the new unsigned UAT installer recorded in `RC-READINESS.md` (not `24c0bf3`).
+
+- UAT emails/passwords: `C:\Users\ali_n\.playstation-cafe-uat\credentials.json` (not in git)
+
+Writer-device provisioning (do this before any sale):
+
+1. Clean install and first launch on the B1 PC (creates `{app_data_dir}/device_id`).
+2. Close the app. Do not start a session or take payment.
+3. Read that file. Register it as the UAT1 cloud writer via the privileged SQL path.
+4. Repeat independently for UAT2 on a second PC.
 
 Windows SmartScreen / “unknown publisher” is expected until Authenticode exists.
 

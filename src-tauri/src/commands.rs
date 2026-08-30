@@ -1,6 +1,6 @@
 use tauri::State;
 
-use crate::auth::{pin, session::Session, supabase_auth};
+use crate::auth::{pin, session::Session};
 use crate::domain::{gaming, inventory, orders, payments};
 use crate::error::{AppError, AppResult};
 use crate::state::AppState;
@@ -69,57 +69,27 @@ pub async fn login_online(
 ) -> AppResult<serde_json::Value> {
     let cfg =
         transport::env_config().ok_or_else(|| AppError::Auth("cloud not configured".into()))?;
-    let tokens = supabase_auth::password_login(&cfg, &email, &password).await?;
-    let profiles =
-        supabase_auth::fetch_profile(&cfg, &tokens.access_token, &tokens.user.id).await?;
-    let profile = profiles
-        .as_array()
-        .and_then(|a| a.first())
-        .cloned()
-        .ok_or_else(|| AppError::Auth("profile missing".into()))?;
-    let display = profile
-        .get("display_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("User")
-        .to_string();
-    let admin = profile
-        .get("is_system_admin")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    // Branch assignment is cached locally after first successful pairing/pull.
-    let branch = sqlx::query_scalar::<_, String>(
-        "SELECT branch_id FROM user_branch_roles WHERE user_id = ? AND is_active = 1 LIMIT 1",
-    )
-    .bind(&tokens.user.id)
-    .fetch_optional(&state.db)
-    .await?
-    .ok_or_else(|| {
-        AppError::Auth("no local branch assignment; download reference data online first".into())
-    })?;
-    let role = sqlx::query_scalar::<_, String>(
-        "SELECT role FROM user_branch_roles WHERE user_id = ? AND branch_id = ?",
-    )
-    .bind(&tokens.user.id)
-    .bind(&branch)
-    .fetch_one(&state.db)
-    .await?;
-    let hash = pin::hash_pin(&pin)?;
-    pin::cache_offline_access(&state.db, &tokens.user.id, &display, &branch, &role, &hash).await?;
+    let (assignment, tokens) =
+        crate::auth::reference::complete_online_login(&state.db, &cfg, &email, &password, &pin)
+            .await?;
     state.sessions.set(Session {
-        user_id: tokens.user.id.clone(),
-        display_name: display.clone(),
-        branch_id: branch.clone(),
-        role: role.clone(),
-        is_system_admin: admin,
+        user_id: assignment.user_id.clone(),
+        display_name: assignment.display_name.clone(),
+        branch_id: assignment.branch_id.clone(),
+        role: assignment.role.clone(),
+        is_system_admin: assignment.is_system_admin,
         access_token: Some(tokens.access_token),
         refresh_token: Some(tokens.refresh_token),
         offline: false,
         offline_expires_at: None,
     });
     state.sync.notify();
-    Ok(
-        serde_json::json!({ "user_id": tokens.user.id, "display_name": display, "branch_id": branch, "role": role }),
-    )
+    Ok(serde_json::json!({
+        "user_id": assignment.user_id,
+        "display_name": assignment.display_name,
+        "branch_id": assignment.branch_id,
+        "role": assignment.role
+    }))
 }
 
 #[tauri::command]
