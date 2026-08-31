@@ -7,7 +7,7 @@ use playstation_cafe_lib::database;
 use playstation_cafe_lib::dev;
 use playstation_cafe_lib::domain::{inventory, orders, payments};
 
-    10|async fn stock(pool: &sqlx::SqlitePool, branch: &str, product: &str) -> i64 {
+async fn stock(pool: &sqlx::SqlitePool, branch: &str, product: &str) -> i64 {
     sqlx::query_scalar(
         "SELECT quantity_on_hand FROM inventory_balances WHERE branch_id = ? AND product_id = ?",
     )
@@ -18,7 +18,7 @@ use playstation_cafe_lib::domain::{inventory, orders, payments};
     .unwrap()
 }
 
-    20|async fn item_statuses(pool: &sqlx::SqlitePool, order_id: &str) -> Vec<String> {
+async fn item_statuses(pool: &sqlx::SqlitePool, order_id: &str) -> Vec<String> {
     sqlx::query_scalar("SELECT status FROM order_items WHERE order_id = ? ORDER BY id")
         .bind(order_id)
         .fetch_all(pool)
@@ -28,7 +28,7 @@ use playstation_cafe_lib::domain::{inventory, orders, payments};
 
 #[tokio::test]
 async fn voiding_a_ticket_returns_its_lines_to_stock() {
-    30|    let pool = database::open_memory().await.unwrap();
+    let pool = database::open_memory().await.unwrap();
     dev::seed_two_branches(&pool).await.unwrap();
     let opening = stock(&pool, "b1", "p-coke").await;
 
@@ -38,7 +38,7 @@ async fn voiding_a_ticket_returns_its_lines_to_stock() {
         .await
         .unwrap();
     assert_eq!(stock(&pool, "b1", "p-coke").await, opening - 2);
-    40|
+
     orders::void_open_order(&pool, "b1", "d1", &order_id, "u-c1", "mistyped ticket")
         .await
         .expect("void");
@@ -49,7 +49,7 @@ async fn voiding_a_ticket_returns_its_lines_to_stock() {
         "a voided ticket sold nothing, so its stock must come back"
     );
     assert_eq!(item_statuses(&pool, &order_id).await, ["voided"]);
-    50|
+
     let (status, product_subtotal, total): (String, i64, i64) = sqlx::query_as(
         "SELECT status, product_subtotal_minor, total_minor FROM orders WHERE id = ?",
     )
@@ -59,7 +59,7 @@ async fn voiding_a_ticket_returns_its_lines_to_stock() {
     .unwrap();
     assert_eq!(status, "void");
     assert_eq!(product_subtotal, 0, "a void ticket carries no product value");
-    60|    assert_eq!(total, 0);
+    assert_eq!(total, 0);
 }
 
 #[tokio::test]
@@ -69,7 +69,7 @@ async fn voiding_a_ticket_records_one_sale_void_movement_per_line() {
 
     let order = orders::open_pos_order(&pool, "b1", "d1", "u-c1").await.unwrap();
     let order_id = order["order_id"].as_str().unwrap().to_string();
-    70|    inventory::add_product_to_order(&pool, "b1", "d1", &order_id, "p-coke", 1, "u-c1")
+    inventory::add_product_to_order(&pool, "b1", "d1", &order_id, "p-coke", 1, "u-c1")
         .await
         .unwrap();
     inventory::add_product_to_order(&pool, "b1", "d1", &order_id, "p-chips", 3, "u-c1")
@@ -79,7 +79,7 @@ async fn voiding_a_ticket_records_one_sale_void_movement_per_line() {
     orders::void_open_order(&pool, "b1", "d1", &order_id, "u-c1", "mistyped ticket")
         .await
         .unwrap();
-    80|
+
     let movements: Vec<(String, i64, i64)> = sqlx::query_as(
         "SELECT product_id, quantity_delta, quantity_after FROM inventory_movements
          WHERE order_id = ? AND movement_type = 'sale_void' ORDER BY product_id",
@@ -89,7 +89,7 @@ async fn voiding_a_ticket_records_one_sale_void_movement_per_line() {
     .await
     .unwrap();
     assert_eq!(movements.len(), 2, "one credit per voided line");
-    90|    for (product, delta, after) in &movements {
+    for (product, delta, after) in &movements {
         assert!(*delta > 0, "a void credits stock back");
         assert_eq!(
             *after,
@@ -99,7 +99,7 @@ async fn voiding_a_ticket_records_one_sale_void_movement_per_line() {
     }
 
     // Every movement points at the order.voided event, so the ledger explains
-   100|    // itself without joining through the order.
+    // itself without joining through the order.
     let orphans: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM inventory_movements
          WHERE order_id = ? AND movement_type = 'sale_void' AND origin_event_id IS NULL",
@@ -109,7 +109,7 @@ async fn voiding_a_ticket_records_one_sale_void_movement_per_line() {
     .await
     .unwrap();
     assert_eq!(orphans, 0);
-   110|}
+}
 
 #[tokio::test]
 async fn voiding_an_empty_ticket_leaves_stock_alone() {
@@ -119,7 +119,7 @@ async fn voiding_an_empty_ticket_leaves_stock_alone() {
 
     let order = orders::open_pos_order(&pool, "b1", "d1", "u-c1").await.unwrap();
     let order_id = order["order_id"].as_str().unwrap().to_string();
-   120|    orders::void_open_order(&pool, "b1", "d1", &order_id, "u-c1", "opened by mistake")
+    orders::void_open_order(&pool, "b1", "d1", &order_id, "u-c1", "opened by mistake")
         .await
         .unwrap();
 
@@ -130,7 +130,7 @@ async fn voiding_an_empty_ticket_leaves_stock_alone() {
             .fetch_one(&pool)
             .await
             .unwrap();
-   130|    assert_eq!(movements, 0);
+    assert_eq!(movements, 0);
 }
 
 #[tokio::test]
@@ -140,7 +140,7 @@ async fn a_line_voided_before_the_ticket_is_not_credited_twice() {
     let opening = stock(&pool, "b1", "p-coke").await;
 
     let order = orders::open_pos_order(&pool, "b1", "d1", "u-c1").await.unwrap();
-   140|    let order_id = order["order_id"].as_str().unwrap().to_string();
+    let order_id = order["order_id"].as_str().unwrap().to_string();
     let item = inventory::add_product_to_order(&pool, "b1", "d1", &order_id, "p-coke", 1, "u-c1")
         .await
         .unwrap();
@@ -150,7 +150,7 @@ async fn a_line_voided_before_the_ticket_is_not_credited_twice() {
         .await
         .unwrap();
     assert_eq!(stock(&pool, "b1", "p-coke").await, opening);
-   150|
+
     orders::void_open_order(&pool, "b1", "d1", &order_id, "u-c1", "abandoned")
         .await
         .unwrap();
@@ -161,7 +161,7 @@ async fn a_line_voided_before_the_ticket_is_not_credited_twice() {
         "the line was already credited, so the ticket void must not credit it again"
     );
 }
-   160|
+
 #[tokio::test]
 async fn a_paid_ticket_still_cannot_be_voided() {
     let pool = database::open_memory().await.unwrap();
@@ -171,7 +171,7 @@ async fn a_paid_ticket_still_cannot_be_voided() {
     let order_id = order["order_id"].as_str().unwrap().to_string();
     inventory::add_product_to_order(&pool, "b1", "d1", &order_id, "p-coke", 1, "u-c1")
         .await
-   170|        .unwrap();
+        .unwrap();
     payments::take_cash(&pool, "b1", "d1", &order_id, 20_000, "u-c1")
         .await
         .unwrap();
@@ -181,7 +181,7 @@ async fn a_paid_ticket_still_cannot_be_voided() {
         .await
         .expect_err("a paid ticket needs a reversal, not a void");
 
-   180|    assert_eq!(
+    assert_eq!(
         stock(&pool, "b1", "p-coke").await,
         paid_stock,
         "a refused void must not move stock"
