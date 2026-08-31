@@ -159,20 +159,95 @@ pub async fn void_open_order(
             "paid order cannot become open or void without reversal".into(),
         ));
     }
-    sqlx::query("UPDATE orders SET status = 'void' WHERE id = ?")
-        .bind(order_id)
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("UPDATE gaming_sessions SET status = 'void' WHERE order_id = ? AND status IN ('active','stopped')")
-        .bind(order_id)
-        .execute(&mut *tx)
-        .await?;
+    let now = Utc::now().to_rfc3339();
     let payload = serde_json::json!({
         "order_id": order_id,
         "branch_id": branch_id,
         "voided_by": user_id,
         "reason": reason
     });
+    // The outbox row is written before the lines are retired so the movement
+    // ledger can point at the event that caused it.
+    let out = outbox::enqueue(
+        &mut tx,
+        device_id,
+        branch_id,
+        "order.voided",
+        order_id,
+        payload.clone(),
+    )
+    .await?;
+
+    // A voided ticket sold nothing, so every line it still holds goes back on the
+    // shelf. Voiding only the order left the lines 'active' and kept the units it
+    // had already deducted, so each mistyped ticket quietly shrank stock.
+    let items: Vec<(String, String, i64)> = sqlx::query_as(
+        "SELECT id, product_id, quantity FROM order_items
+         WHERE order_id = ? AND status = 'active' ORDER BY id",
+    )
+    .bind(order_id)
+    .fetch_all(&mut *tx)
+    .await?;
+    for (item_id, product_id, quantity) in &items {
+        let (stock, version): (i64, i64) = sqlx::query_as(
+            "SELECT quantity_on_hand, version FROM inventory_balances
+             WHERE branch_id = ? AND product_id = ?",
+        )
+        .bind(branch_id)
+        .bind(product_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let after = stock + quantity;
+        crate::domain::inventory::apply_stock_cas(
+            &mut tx, branch_id, product_id, stock, version, after, &now,
+        )
+        .await?;
+        sqlx::query(
+            "INSERT INTO inventory_movements (
+                id, branch_id, product_id, movement_type, quantity_delta, quantity_after,
+                order_id, order_item_id, origin_event_id, created_by, created_at
+             ) VALUES (?, ?, ?, 'sale_void', ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(Uuid::new_v4().to_string())
+        .bind(branch_id)
+        .bind(product_id)
+        .bind(quantity)
+        .bind(after)
+        .bind(order_id)
+        .bind(item_id)
+        .bind(&out.event_id)
+        .bind(user_id)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+    }
+    if !items.is_empty() {
+        sqlx::query(
+            "UPDATE order_items SET status = 'voided', voided_at = ?, void_reason = ?
+             WHERE order_id = ? AND status = 'active'",
+        )
+        .bind(&now)
+        .bind(reason)
+        .bind(order_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    sqlx::query(
+        "UPDATE orders
+         SET status = 'void',
+             product_subtotal_minor = 0,
+             subtotal_minor = gaming_subtotal_minor,
+             total_minor = gaming_subtotal_minor - discount_minor + tax_minor
+         WHERE id = ?",
+    )
+    .bind(order_id)
+    .execute(&mut *tx)
+    .await?;
+    sqlx::query("UPDATE gaming_sessions SET status = 'void' WHERE order_id = ? AND status IN ('active','stopped')")
+        .bind(order_id)
+        .execute(&mut *tx)
+        .await?;
     insert_audit(
         &mut tx,
         branch_id,
@@ -183,15 +258,6 @@ pub async fn void_open_order(
         order_id,
         None,
         Some(&payload),
-    )
-    .await?;
-    outbox::enqueue(
-        &mut tx,
-        device_id,
-        branch_id,
-        "order.voided",
-        order_id,
-        payload.clone(),
     )
     .await?;
     tx.commit().await?;
