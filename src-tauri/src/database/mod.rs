@@ -1,6 +1,6 @@
 pub mod migrate;
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use sqlx::sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous};
 use sqlx::SqlitePool;
@@ -75,13 +75,6 @@ async fn ensure_sync_state(pool: &SqlitePool) -> AppResult<()> {
     Ok(())
 }
 
-/// SQLite's sidecar naming: `branch.sqlite` plus `-wal` is `branch.sqlite-wal`.
-fn sidecar(path: &Path, suffix: &str) -> PathBuf {
-    let mut name = path.file_name().unwrap_or_default().to_os_string();
-    name.push(suffix);
-    path.with_file_name(name)
-}
-
 fn apply_pending_restore(path: &PathBuf) -> AppResult<()> {
     let restore = path.with_extension("sqlite.restore");
     if !restore.exists() {
@@ -90,23 +83,7 @@ fn apply_pending_restore(path: &PathBuf) -> AppResult<()> {
     if path.exists() {
         let pre = path.with_extension("sqlite.pre-restore");
         let _ = std::fs::remove_file(&pre);
-        std::fs::rename(path, &pre)?;
-        // The live -wal/-shm belong to the database that just moved aside. Left
-        // behind under the old name, SQLite recovers those frames into the
-        // restored file, because a foreign WAL is only checked against its own
-        // frame checksums. That is how a restored till came up on a corrupt
-        // index and then refused every sale with "database disk image is
-        // malformed". They travel with the copy they describe instead, which
-        // also keeps the pre-restore copy complete.
-        for suffix in ["-wal", "-shm"] {
-            let from = sidecar(path, suffix);
-            if !from.exists() {
-                continue;
-            }
-            let to = sidecar(&pre, suffix);
-            let _ = std::fs::remove_file(&to);
-            std::fs::rename(&from, &to)?;
-        }
+        std::fs::rename(path, pre)?;
     }
     std::fs::rename(&restore, path)?;
     Ok(())

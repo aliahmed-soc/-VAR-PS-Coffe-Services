@@ -181,48 +181,8 @@ pub async fn pull_cursor(pool: &SqlitePool) -> String {
     .unwrap_or_else(|| "1970-01-01T00:00:00Z".into())
 }
 
-/// Moves this device's local counter past every sequence the cloud has already
-/// accepted from it.
-///
-/// A restored backup can be older than what the cloud holds, which rewinds the
-/// counter. The cloud demands exactly `last_applied + 1`, so from then on every
-/// event dies with `sequence_gap` and the till can never push again. Only ever
-/// forward: in ordinary operation the local counter is already ahead and this is
-/// a no-op.
-async fn fast_forward_sequences(pool: &SqlitePool, snapshot: &serde_json::Value) -> AppResult<()> {
-    let Some(receipts) = snapshot.get("sync_receipts").and_then(|v| v.as_array()) else {
-        return Ok(());
-    };
-    let mut highest: std::collections::HashMap<&str, i64> = std::collections::HashMap::new();
-    for receipt in receipts {
-        let Some(device) = receipt.get("device_id").and_then(|v| v.as_str()) else {
-            continue;
-        };
-        let Some(sequence) = receipt.get("local_sequence").and_then(|v| v.as_i64()) else {
-            continue;
-        };
-        let slot = highest.entry(device).or_insert(sequence);
-        if sequence > *slot {
-            *slot = sequence;
-        }
-    }
-    for (device, sequence) in highest {
-        sqlx::query(
-            "UPDATE device_sequence SET next_sequence = ?
-             WHERE device_id = ? AND next_sequence <= ?",
-        )
-        .bind(sequence + 1)
-        .bind(device)
-        .bind(sequence)
-        .execute(pool)
-        .await?;
-    }
-    Ok(())
-}
-
 pub async fn apply_pull_snapshot(pool: &SqlitePool, snapshot: &serde_json::Value) -> AppResult<u64> {
     let marked = outbox::reconcile_from_pull(pool, snapshot).await?;
-    fast_forward_sequences(pool, snapshot).await?;
     let now = chrono::Utc::now().to_rfc3339();
     sqlx::query(
         "UPDATE sync_state SET restore_reconciliation_required = 0, last_successful_pull_at = ?, updated_at = ? WHERE id = 1",
