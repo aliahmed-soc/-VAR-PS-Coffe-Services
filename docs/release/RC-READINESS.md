@@ -50,6 +50,20 @@ for as long as the operator did not touch it. That badge is what a cashier reads
 closing the shop, so it now polls every `HEALTH_POLL_MS`. Covered by
 `tests/contract/sync-badge.test.ts`.
 
+Phase J found the fourth and worst one. Restore is the only path that swaps the database
+file underneath SQLite, and it left the live `-wal`/`-shm` behind under the old name. A
+foreign WAL is only validated against its own frame checksums, so SQLite recovered pages
+belonging to the displaced database into the restored one: the till came up with
+`wrong # of entries in index idx_inv_movements_product` and then refused every sale with
+`database disk image is malformed`. The sidecars now move with the copy they describe, which
+also leaves the `.pre-restore` copy complete. Fixing that exposed the defect underneath it:
+a restored backup can carry a device counter behind what the cloud already accepted, and the
+cloud demands exactly `last_applied + 1`, so the till would have been stuck on `sequence_gap`
+forever. Reconciliation now moves the counter past every sequence in the pulled receipts, and
+never backwards. Both covered by `src-tauri/tests/restore_reconciliation.rs`. Pull-before-push
+itself behaved correctly throughout: the newer cloud sale was never overwritten by the older
+restored state.
+
 Known non-blocking defects, deliberately not fixed during UAT:
 
 - `upsert_product` and `upsert_payment_method` in `src-tauri/src/auth/reference.rs` omit
