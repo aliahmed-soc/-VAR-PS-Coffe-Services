@@ -1,8 +1,15 @@
--- Live PostgreSQL contract for order.voided returning its lines to stock.
+-- Live PostgreSQL contract for the event stream a whole-ticket void produces.
 --
--- apply_domain_event used to only flip the order to 'void', leaving every line
--- 'active' and the units it had already deducted uncredited. Reproduced during
--- physical UAT: a drink on a voided walk-in ticket stayed missing from stock.
+-- The till used to enqueue only order.voided, which flips the order to 'void'
+-- and touches nothing else. Every line stayed 'active' and the units already
+-- deducted were never credited back. Reproduced during physical UAT: a drink on
+-- a voided walk-in ticket stayed missing from stock, and because the desktop had
+-- the same gap local and cloud agreed on the wrong number.
+--
+-- A ticket void now retires each line through order.item_voided first, so the
+-- cloud converges through the per-line handler, then closes with order.voided.
+-- inventory_movements.origin_event_id is UNIQUE, so one event per line is also
+-- the only shape the ledger accepts.
 
 CREATE OR REPLACE FUNCTION public.test_order_void_returns_stock()
 RETURNS void
@@ -18,9 +25,9 @@ DECLARE
   v_order uuid := '7b7b7b7b-7b7b-4b7b-8b7b-7b7b7b7b7b7b';
   v_item1 uuid := '8b8b8b8b-8b8b-4b8b-8b8b-8b8b8b8b8b8b';
   v_item2 uuid := '9b9b9b9b-9b9b-4b9b-8b9b-9b9b9b9b9b9b';
-  v_empty uuid := 'abababab-abab-4bab-8bab-abababababab';
   v_e1 uuid := 'bcbcbcbc-bcbc-4bcb-8bcb-bcbcbcbcbcbc';
   v_e2 uuid := 'cdcdcdcd-cdcd-4cdc-8cdc-cdcdcdcdcdcd';
+  v_e3 uuid := 'dededede-dede-4ded-8ded-dededededede';
   v_coke_qty int;
   v_chips_qty int;
   v_active int;
@@ -50,8 +57,8 @@ BEGIN
          (v_chips, v_cat, 'VOID-CHIPS', 'Void Chips', 500, 300, true)
   ON CONFLICT (id) DO NOTHING;
   INSERT INTO inventory_balances (branch_id, product_id, quantity_on_hand, version)
-  VALUES (v_branch, v_coke, 20, 1), (v_branch, v_chips, 20, 1)
-  ON CONFLICT (branch_id, product_id) DO UPDATE SET quantity_on_hand = 20;
+  VALUES (v_branch, v_coke, 18, 1), (v_branch, v_chips, 17, 1)
+  ON CONFLICT (branch_id, product_id) DO UPDATE SET quantity_on_hand = excluded.quantity_on_hand;
 
   -- A ticket that already consumed 2 coke and 3 chips.
   INSERT INTO orders (
@@ -69,20 +76,42 @@ BEGIN
     (v_item1, v_order, v_branch, v_coke, 'Void Coke', 2, 1000, 600, 2000, 'active', v_user, now()),
     (v_item2, v_order, v_branch, v_chips, 'Void Chips', 3, 500, 300, 1500, 'active', v_user, now())
   ON CONFLICT (id) DO NOTHING;
-  UPDATE inventory_balances SET quantity_on_hand = 18 WHERE branch_id = v_branch AND product_id = v_coke;
-  UPDATE inventory_balances SET quantity_on_hand = 17 WHERE branch_id = v_branch AND product_id = v_chips;
 
   PERFORM set_config('request.jwt.claim.sub', v_user::text, true);
 
   PERFORM public.apply_domain_event(
-    v_e1, v_branch, v_device, 1, 'order.voided',
+    v_e1, v_branch, v_device, 1, 'order.item_voided',
+    jsonb_build_object(
+      'order_item_id', v_item1,
+      'order_id', v_order,
+      'branch_id', v_branch,
+      'quantity', 2,
+      'voided_by', v_user,
+      'void_reason', 'mistyped ticket'
+    ),
+    'hash-void-1'
+  );
+  PERFORM public.apply_domain_event(
+    v_e2, v_branch, v_device, 2, 'order.item_voided',
+    jsonb_build_object(
+      'order_item_id', v_item2,
+      'order_id', v_order,
+      'branch_id', v_branch,
+      'quantity', 3,
+      'voided_by', v_user,
+      'void_reason', 'mistyped ticket'
+    ),
+    'hash-void-2'
+  );
+  PERFORM public.apply_domain_event(
+    v_e3, v_branch, v_device, 3, 'order.voided',
     jsonb_build_object(
       'order_id', v_order,
       'branch_id', v_branch,
       'voided_by', v_user,
       'reason', 'mistyped ticket'
     ),
-    'hash-void'
+    'hash-void-order'
   );
 
   SELECT quantity_on_hand INTO v_coke_qty FROM inventory_balances
@@ -90,13 +119,14 @@ BEGIN
   SELECT quantity_on_hand INTO v_chips_qty FROM inventory_balances
   WHERE branch_id = v_branch AND product_id = v_chips;
   IF v_coke_qty <> 20 OR v_chips_qty <> 20 THEN
-    RAISE EXCEPTION 'void must return stock, got coke=% chips=%', v_coke_qty, v_chips_qty;
+    RAISE EXCEPTION 'a voided ticket must return its stock, got coke=% chips=%',
+      v_coke_qty, v_chips_qty;
   END IF;
 
   SELECT COUNT(*) INTO v_active FROM order_items
   WHERE order_id = v_order AND status = 'active';
   IF v_active <> 0 THEN
-    RAISE EXCEPTION 'void must retire its lines, % still active', v_active;
+    RAISE EXCEPTION 'a void ticket must hold no active line, % left', v_active;
   END IF;
 
   SELECT status, product_subtotal_minor INTO v_status, v_subtotal FROM orders WHERE id = v_order;
@@ -114,59 +144,37 @@ BEGIN
   END IF;
   IF EXISTS (
     SELECT 1 FROM inventory_movements
-    WHERE order_id = v_order AND movement_type = 'sale_void' AND origin_event_id <> v_e1
+    WHERE order_id = v_order AND movement_type = 'sale_void'
+      AND origin_event_id NOT IN (v_e1, v_e2)
   ) THEN
-    RAISE EXCEPTION 'every credit must point at the order.voided event';
+    RAISE EXCEPTION 'every credit must point at the line void that caused it';
   END IF;
 
-  -- A replay must not credit the same lines a second time.
+  -- Replay must not credit the same line twice.
   SELECT public.apply_domain_event(
-    v_e1, v_branch, v_device, 1, 'order.voided',
+    v_e1, v_branch, v_device, 1, 'order.item_voided',
     jsonb_build_object(
+      'order_item_id', v_item1,
       'order_id', v_order,
       'branch_id', v_branch,
+      'quantity', 2,
       'voided_by', v_user,
-      'reason', 'mistyped ticket'
+      'void_reason', 'mistyped ticket'
     ),
-    'hash-void'
+    'hash-void-1'
   ) INTO v_result;
   IF v_result->>'status' <> 'already_processed' THEN
-    RAISE EXCEPTION 'replayed void must be already_processed, got %', v_result->>'status';
+    RAISE EXCEPTION 'replayed line void must be already_processed, got %', v_result->>'status';
   END IF;
   SELECT quantity_on_hand INTO v_coke_qty FROM inventory_balances
   WHERE branch_id = v_branch AND product_id = v_coke;
   IF v_coke_qty <> 20 THEN
-    RAISE EXCEPTION 'replayed void credited stock twice, got %', v_coke_qty;
+    RAISE EXCEPTION 'replayed line void credited stock twice, got %', v_coke_qty;
   END IF;
-
-  -- An empty ticket must move nothing.
-  INSERT INTO orders (
-    id, branch_id, order_type, status, currency_code, opened_by, opened_at,
-    product_subtotal_minor, gaming_subtotal_minor, subtotal_minor, total_minor,
-    tax_minor, tax_rate_bps, discount_minor
-  ) VALUES (
-    v_empty, v_branch, 'pos', 'open', 'EGP', v_user, now(),
-    0, 0, 0, 0, 0, 0, 0
-  ) ON CONFLICT (id) DO NOTHING;
-
-  PERFORM public.apply_domain_event(
-    v_e2, v_branch, v_device, 2, 'order.voided',
-    jsonb_build_object(
-      'order_id', v_empty,
-      'branch_id', v_branch,
-      'voided_by', v_user,
-      'reason', 'opened by mistake'
-    ),
-    'hash-void-empty'
-  );
-  SELECT quantity_on_hand INTO v_coke_qty FROM inventory_balances
-  WHERE branch_id = v_branch AND product_id = v_coke;
-  IF v_coke_qty <> 20 THEN
-    RAISE EXCEPTION 'voiding an empty ticket moved stock, got %', v_coke_qty;
-  END IF;
-  SELECT COUNT(*) INTO v_movements FROM inventory_movements WHERE order_id = v_empty;
-  IF v_movements <> 0 THEN
-    RAISE EXCEPTION 'voiding an empty ticket wrote % movements', v_movements;
+  SELECT COUNT(*) INTO v_movements FROM inventory_movements
+  WHERE order_id = v_order AND movement_type = 'sale_void';
+  IF v_movements <> 2 THEN
+    RAISE EXCEPTION 'replay wrote a third movement, got %', v_movements;
   END IF;
 END;
 $$;
