@@ -8,8 +8,12 @@ Automated coverage is in GitHub Actions (four required CI jobs + Package Windows
 `da192b3` was superseded too: the `PSC_SUPABASE_ANON_KEY` build secret held a legacy
 `service_role` JWT, so the runtime correctly refused it and every hosted login failed
 with `auth: cloud not configured`. `d489f70` carried phases A–G of physical UAT and was
-then superseded by the receipt-numbering fix. Use the newest unsigned UAT installer
-recorded in `RC-READINESS.md`.
+then superseded by the receipt-numbering fix, `e7cd260` by the sync-badge fix, `bc22240`
+by the restore WAL/sequence fixes, and `94c986d` by the ticket-void inventory fix.
+
+**Accepted build: `0a85f7eace1d222c49be5db48ed4528789bbdd33`**, installer SHA-256
+`0511b3336d710e73121b235da491eda2acfaa540ea20a3f2fdc0a3efcaee4efb`. Every physical item
+below passed on it. Details of each defect are in `RC-READINESS.md`.
 
 - UAT emails/passwords: `C:\Users\ali_n\.playstation-cafe-uat\credentials.json` (not in git)
 
@@ -34,34 +38,42 @@ Windows SmartScreen / “unknown publisher” is expected until Authenticode exi
 
 ## Physical Windows run
 
-- [ ] Clean install of the SHA above
-- [ ] First launch; `branch.sqlite` + `device_id` created
-- [ ] B1 cashier online login (credentials file)
-- [ ] Offline PIN creation
-- [ ] Start a PS station
-- [ ] Add UAT products
-- [ ] Disconnect network
-- [ ] Continue locally
-- [ ] Stop session
-- [ ] Cash checkout
-- [ ] Restart application
-- [ ] Paid order/receipt persists
-- [ ] Payment reversal
-- [ ] Corrected repayment
-- [ ] Reconnect
-- [ ] Sync drains in strict sequence
-- [ ] No duplicate order/payment/receipt
-- [ ] B2 remains isolated
-- [ ] Branch reports correct
-- [ ] Arabic RTL usable
-- [ ] Backup
-- [ ] Restore
-- [ ] Pull-before-push
-- [ ] Stale restore cannot overwrite cloud
-- [ ] Kill/restart UI during sync
-- [ ] Sync worker recovers
-- [ ] 72-hour offline PIN boundary (lab clock only)
-- [ ] Installer upgrade preserves local database/device identity
+Evidence lives outside git in `C:\Users\ali_n\.playstation-cafe-uat\evidence` (screenshots)
+alongside the local-SQLite and hosted-SQL readings quoted in the UAT report.
+
+- [x] Clean install of the SHA above
+- [x] First launch; `branch.sqlite` + `device_id` created
+- [x] B1 cashier online login (credentials file)
+- [x] Offline PIN creation
+- [x] Start a PS station
+- [x] Add UAT products
+- [x] Disconnect network
+- [x] Continue locally
+- [x] Stop session
+- [x] Cash checkout
+- [x] Restart application
+- [x] Paid order/receipt persists
+- [x] Payment reversal
+- [x] Corrected repayment
+- [x] Reconnect
+- [x] Sync drains in strict sequence
+- [x] No duplicate order/payment/receipt
+- [x] B2 remains isolated
+- [x] Branch reports correct
+- [x] Arabic RTL usable
+- [x] Backup
+- [x] Restore
+- [x] Pull-before-push
+- [x] Stale restore cannot overwrite cloud
+- [x] Kill/restart UI during sync
+- [x] Sync worker recovers
+- [x] 72-hour offline PIN boundary (lab clock only)
+- [x] Installer upgrade preserves local database/device identity
+- [x] Voiding a ticket returns its lines to stock (added after the phase C defect)
+
+Deviation from the plan: no second physical PC was available, so UAT2 ran as an isolated
+second Windows profile with its own app-data directory, its own `device_id`, and its own
+registered cloud writer. Windows Sandbox could not start in this disconnected RDP session.
 
 After acceptance, run `supabase/bootstrap/uat_cleanup.sql` once. Do not run it now.
 

@@ -1,8 +1,11 @@
 # Release-candidate readiness
 
-Status date: 2026-08-30.
+Status date: 2026-08-31.
 
-Packaged HEAD: `da192b3f89ad6c780228471383f810e821736fed`
+Packaged HEAD: `0a85f7eace1d222c49be5db48ed4528789bbdd33`
+
+Physical GUI UAT phases A–L all pass on this build. It is the sixth candidate: each earlier
+one was superseded by a defect that physical UAT found and that is written up below.
 
 `24c0bf349b9a2a9a437811df1f8944ec4fd006c7` was superseded: a clean install could authenticate with Supabase but could not resolve a branch because `login_online` read empty local `user_branch_roles`. First-run now downloads RLS-visible reference data in Rust, caches it transactionally, then creates the session and offline PIN.
 
@@ -74,6 +77,22 @@ event from the same till for good. Reconciliation now records the receipts the c
 already issued in `receipt_high_water`, and `take_cash` allocates above both that mark and
 its own orders. Covered by `src-tauri/tests/restore_reconciliation.rs`.
 
+The last one came out of re-checking that today's report ignores an unpaid ticket. Voiding a
+whole ticket only flipped the order to `void`: `void_open_order` never touched the lines, so
+each stayed `active` and the units it had already deducted were never credited back. A
+cashier voiding a mistyped ticket lost that stock for good, and because
+`apply_domain_event('order.voided')` had the same gap, local and cloud agreed on the wrong
+number, so no reconciliation could ever surface it. The ticket void now retires each line
+through the same per-line path a cashier uses, which credits the stock, writes the
+`sale_void` movement and carries its own event, so the cloud converges through the
+already-correct `order.item_voided` handler and needs no migration. The per-line helper moved
+into the caller's transaction so a ticket still voids atomically. Covered by
+`src-tauri/tests/order_void_stock.rs` and `supabase/tests/inventory/order_void.sql`.
+
+The first attempt at that fix gave `order.voided` its own stock-returning branch in the RPC.
+`inventory_movements.origin_event_id` is UNIQUE, so a multi-line ticket cannot credit more
+than one line from a single event; the new tests caught it in CI before it shipped.
+
 Known non-blocking defects, deliberately not fixed during UAT:
 
 - `upsert_product` and `upsert_payment_method` in `src-tauri/src/auth/reference.rs` omit
@@ -94,31 +113,47 @@ Known non-blocking defects, deliberately not fixed during UAT:
 - The UAT bootstrap's Arabic product names were stored as mojibake because the PowerShell
   Management-API helper posts its body as ISO-8859-1. Hosted data has been repaired over a
   UTF-8 client. Production bootstrap must not go through that helper.
+- One UAT1 walk-in ticket carries the residue of the void defect above: the order is `void`
+  while its single line is still `active`, and `UAT-DRINK` at UAT1 reads 17 instead of 18.
+  Only a pre-fix build could produce it, and it is disposable UAT data that
+  `uat_cleanup.sql` removes, so it was left rather than repaired by migration — a repair
+  would have had to fabricate the `origin_event_id` and `created_by` that
+  `inventory_movements` requires.
+- One UAT1 order (`9c2755c8`) sits in `checkout_pending` in the cloud with no payment and no
+  receipt: the residue of the receipt-collision defect, whose `order.paid` the cloud refused.
+  `payment.captured` is sequencing-only by design, so it carries no money and no receipt and
+  cannot double-count. Also disposable UAT data.
 
 Hosted migrations `20260829000100` / `20260829000200` / `20260829000300` /
-`20260831000100` remain applied.
+`20260831000100` remain applied. The void fix needed no migration.
 UAT Auth users and UAT1/UAT2 reference data remain. Disposable API-acceptance orders/receipts/sequences were reset; inventory baseline is 20.
 
 ## Green / proven
 
 | Area | Evidence |
 | --- | --- |
-| contracts, cafe-domain, postgres, tauri-windows | [CI 33331579343](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33331579343) on `da192b3` |
+| contracts, cafe-domain, postgres, tauri-windows | [CI 33348312612](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33348312612) on `0a85f7e` |
 | First-login bootstrap tests | `src-tauri/tests/first_login.rs`, `first_login_repro.rs` |
-| Unsigned UAT NSIS | [Package Windows NSIS 33331780899](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33331780899) |
-| Packaged commit | `da192b3f89ad6c780228471383f810e821736fed` |
+| Unsigned UAT NSIS | [Package Windows NSIS 33348668730](https://github.com/aliahmed-soc/-VAR-PS-Coffe-Services/actions/runs/33348668730) |
+| Packaged commit | `0a85f7eace1d222c49be5db48ed4528789bbdd33` |
 | Publishable key in logs | present, value not printed (`***`) |
-| Installer file | `PlayStation Cafe POS_0.1.0_x64-setup.exe` (4,460,857 bytes) |
-| SHA-256 | `17ae387af9d1d6f40ebf1c9f90c3dc832c5ae5abacb094f1fd9f9cbff59eb289` |
-| Artifact name | `playstation-cafe-nsis-unsigned-da192b3` |
+| Installer file | `PlayStation Cafe POS_0.1.0_x64-setup.exe` (4,462,295 bytes) |
+| SHA-256 | `0511b3336d710e73121b235da491eda2acfaa540ea20a3f2fdc0a3efcaee4efb` |
+| Artifact name | `playstation-cafe-nsis-unsigned-0a85f7e` |
 | Installer secret scan | `secret_string_hits: []` |
 | Install / upgrade / uninstall smoke | passed |
+| Physical GUI UAT phases A–L | passed; per-item evidence in `acceptance-checklist.md` |
+| UAT1 writer `device_id` | `69c2a623-3414-4713-ba43-97d1cf0d4caf`, unchanged across four installs |
+| UAT1 sequence | local next 49, cloud 1–48 contiguous, 48 receipts, no gaps or duplicates |
+| UAT2 writer `device_id` | `aa4f4327-908d-449d-86fd-467a6bc22227`, cloud 1–4 |
 | Signing | unsigned (expected) |
 
-Ordinary MVP feature work is stopped. No GitHub Release. Authenticode waits for physical UAT.
+Ordinary MVP feature work is stopped. No GitHub Release.
 
 ## External / operational remaining
 
-- Physical clean-Windows UAT of **this** installer (not `24c0bf3`), including writer `device_id` registration
-- Authenticode after UAT
+- Authenticode signing (nothing else blocks it)
 - Replace UAT-only 3000 minor/hour rate and UAT products before live trading
+- Run `supabase/bootstrap/uat_cleanup.sql` once, to drop the disposable UAT data described above
+- A second physical PC for UAT2 was unavailable; UAT2 ran as an isolated second Windows
+  profile on the same machine with its own app-data directory and its own registered writer
