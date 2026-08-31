@@ -159,25 +159,6 @@ pub async fn void_open_order(
             "paid order cannot become open or void without reversal".into(),
         ));
     }
-    // A voided ticket sold nothing, so every line it still holds goes back on the
-    // shelf. Voiding only the order left the lines 'active' and kept the units it
-    // had already deducted, so each mistyped ticket quietly shrank stock. Each
-    // line is retired through the same per-line path a cashier would use, which
-    // credits the stock, writes the movement, and carries its own event, so the
-    // cloud converges on the already-proven order.item_voided handler.
-    let active: Vec<String> = sqlx::query_scalar(
-        "SELECT id FROM order_items WHERE order_id = ? AND status = 'active' ORDER BY id",
-    )
-    .bind(order_id)
-    .fetch_all(&mut *tx)
-    .await?;
-    for item_id in &active {
-        crate::domain::inventory::void_item_in_tx(
-            &mut tx, branch_id, device_id, item_id, user_id, reason,
-        )
-        .await?;
-    }
-
     sqlx::query("UPDATE orders SET status = 'void' WHERE id = ?")
         .bind(order_id)
         .execute(&mut *tx)

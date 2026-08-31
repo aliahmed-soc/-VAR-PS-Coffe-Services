@@ -207,21 +207,6 @@ pub async fn void_order_item(
     reason: &str,
 ) -> AppResult<serde_json::Value> {
     let mut tx = pool.begin().await?;
-    let payload = void_item_in_tx(&mut tx, branch_id, device_id, item_id, user_id, reason).await?;
-    tx.commit().await?;
-    Ok(payload)
-}
-
-/// Voids one line inside a caller's transaction, so voiding a whole ticket can
-/// retire all of its lines atomically instead of one commit at a time.
-pub(crate) async fn void_item_in_tx(
-    tx: &mut SqliteConnection,
-    branch_id: &str,
-    device_id: &str,
-    item_id: &str,
-    user_id: &str,
-    reason: &str,
-) -> AppResult<serde_json::Value> {
     let item: Option<(String, String, String, i64, i64, String)> = sqlx::query_as(
         "SELECT order_id, product_id, status, quantity, line_total_minor, branch_id FROM order_items WHERE id = ?",
     )
@@ -263,7 +248,7 @@ pub(crate) async fn void_item_in_tx(
     .bind(item_id)
     .execute(&mut *tx)
     .await?;
-    apply_stock_cas(&mut *tx, branch_id, &product_id, stock, version, after, &now).await?;
+    apply_stock_cas(&mut tx, branch_id, &product_id, stock, version, after, &now).await?;
     sqlx::query(
         "UPDATE orders SET product_subtotal_minor = product_subtotal_minor - ?,
             subtotal_minor = product_subtotal_minor - ? + gaming_subtotal_minor,
@@ -286,7 +271,7 @@ pub(crate) async fn void_item_in_tx(
         "void_reason": reason
     });
     let out = outbox::enqueue(
-        &mut *tx,
+        &mut tx,
         device_id,
         branch_id,
         "order.item_voided",
@@ -313,7 +298,7 @@ pub(crate) async fn void_item_in_tx(
     .execute(&mut *tx)
     .await?;
     insert_audit(
-        &mut *tx,
+        &mut tx,
         branch_id,
         user_id,
         device_id,
@@ -324,6 +309,7 @@ pub(crate) async fn void_item_in_tx(
         Some(&payload),
     )
     .await?;
+    tx.commit().await?;
     Ok(payload)
 }
 
