@@ -5,7 +5,17 @@
 // because a restored counter can sit behind what the cloud already accepted.
 use playstation_cafe_lib::database;
 use playstation_cafe_lib::dev;
+use playstation_cafe_lib::domain::{inventory, orders, payments};
 use playstation_cafe_lib::sync::engine;
+
+async fn walk_in_with_one_drink(pool: &sqlx::SqlitePool, branch: &str, device: &str) -> String {
+    let order = orders::open_pos_order(pool, branch, device, "u-c1").await.unwrap();
+    let order_id = order["order_id"].as_str().unwrap().to_string();
+    inventory::add_product_to_order(pool, branch, device, &order_id, "p-coke", 1, "u-c1")
+        .await
+        .unwrap();
+    order_id
+}
 
 fn temp_dir(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("psc-{name}-{}", uuid::Uuid::new_v4()));
@@ -127,6 +137,63 @@ async fn reconciliation_moves_a_rewound_sequence_past_the_cloud() {
         next, 31,
         "the counter must clear every sequence the cloud already accepted"
     );
+}
+
+#[tokio::test]
+async fn a_sale_after_a_restore_skips_receipts_the_cloud_already_holds() {
+    let pool = database::open_memory().await.unwrap();
+    dev::seed_two_branches(&pool).await.unwrap();
+
+    // A restored backup that has lost the two orders the cloud closed today. The
+    // pull carries their receipts, which is all the till needs to stay clear of
+    // them: re-issuing one gets order.paid refused with a 409 for good, leaving
+    // the sale paid on the till and unpaid in the cloud.
+    let prefix = format!("B1-{}-", chrono::Utc::now().format("%Y%m%d"));
+    let snapshot = serde_json::json!({
+        "orders": [
+            { "branch_id": "b1", "receipt_number": format!("{prefix}0001") },
+            { "branch_id": "b1", "receipt_number": format!("{prefix}0002") },
+            { "branch_id": "b1", "receipt_number": serde_json::Value::Null },
+            { "branch_id": "b2", "receipt_number": format!("B2-{}-0009", chrono::Utc::now().format("%Y%m%d")) }
+        ]
+    });
+    engine::apply_pull_snapshot(&pool, &snapshot).await.unwrap();
+
+    let order = walk_in_with_one_drink(&pool, "b1", "d1").await;
+    payments::take_cash(&pool, "b1", "d1", &order, 20_000, "u-c1")
+        .await
+        .expect("a restored till must still be able to close a sale");
+
+    let receipt: String = sqlx::query_scalar("SELECT receipt_number FROM orders WHERE id = ?")
+        .bind(&order)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        receipt,
+        format!("{prefix}0003"),
+        "the counter must clear the receipts the cloud already issued"
+    );
+}
+
+#[tokio::test]
+async fn recording_issued_receipts_only_ever_moves_the_mark_up() {
+    let pool = database::open_memory().await.unwrap();
+    let day = chrono::Utc::now().format("%Y%m%d").to_string();
+    let high = serde_json::json!({
+        "orders": [{ "branch_id": "b1", "receipt_number": format!("B1-{day}-0007") }]
+    });
+    let low = serde_json::json!({
+        "orders": [{ "branch_id": "b1", "receipt_number": format!("B1-{day}-0002") }]
+    });
+    engine::apply_pull_snapshot(&pool, &high).await.unwrap();
+    engine::apply_pull_snapshot(&pool, &low).await.unwrap();
+
+    let mark: i64 = sqlx::query_scalar("SELECT last_sequence FROM receipt_high_water")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(mark, 7, "a later pull must not lower the mark");
 }
 
 #[tokio::test]

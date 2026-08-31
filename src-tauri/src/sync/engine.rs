@@ -220,9 +220,58 @@ async fn fast_forward_sequences(pool: &SqlitePool, snapshot: &serde_json::Value)
     Ok(())
 }
 
+/// Records the receipt numbers the cloud has already issued for this branch.
+///
+/// The till allocates the next receipt from its own orders table, and a restored
+/// backup is missing orders the cloud still holds. Re-issuing one of those
+/// numbers gets `order.paid` refused with a 409 for good, which leaves the sale
+/// paid on the till and unpaid in the cloud. `take_cash` reads this alongside its
+/// own orders, so the number is skipped instead.
+async fn record_issued_receipts(
+    pool: &SqlitePool,
+    snapshot: &serde_json::Value,
+) -> AppResult<()> {
+    let Some(orders) = snapshot.get("orders").and_then(|v| v.as_array()) else {
+        return Ok(());
+    };
+    let now = chrono::Utc::now().to_rfc3339();
+    for order in orders {
+        let (Some(branch), Some(receipt)) = (
+            order.get("branch_id").and_then(|v| v.as_str()),
+            order.get("receipt_number").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        // "UAT1-20260831-0007" splits into the "UAT1-20260831-" prefix the
+        // allocator builds and the counter it needs to stay above.
+        let Some(split) = receipt.rfind('-') else {
+            continue;
+        };
+        let (prefix, tail) = receipt.split_at(split + 1);
+        let Ok(sequence) = tail.parse::<i64>() else {
+            continue;
+        };
+        sqlx::query(
+            "INSERT INTO receipt_high_water (branch_id, prefix, last_sequence, updated_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(branch_id, prefix) DO UPDATE SET
+               last_sequence = MAX(last_sequence, excluded.last_sequence),
+               updated_at = excluded.updated_at",
+        )
+        .bind(branch)
+        .bind(prefix)
+        .bind(sequence)
+        .bind(&now)
+        .execute(pool)
+        .await?;
+    }
+    Ok(())
+}
+
 pub async fn apply_pull_snapshot(pool: &SqlitePool, snapshot: &serde_json::Value) -> AppResult<u64> {
     let marked = outbox::reconcile_from_pull(pool, snapshot).await?;
     fast_forward_sequences(pool, snapshot).await?;
+    record_issued_receipts(pool, snapshot).await?;
     let now = chrono::Utc::now().to_rfc3339();
     sqlx::query(
         "UPDATE sync_state SET restore_reconciliation_required = 0, last_successful_pull_at = ?, updated_at = ? WHERE id = 1",

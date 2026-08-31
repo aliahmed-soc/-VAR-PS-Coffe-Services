@@ -71,6 +71,9 @@ pub async fn take_cash(
     // receipt did both wrong: a repaid order retires one number and takes
     // another, after which the count points back at a number already in use, and
     // two branches paying on the same day both produced the same "B-<day>-0001".
+    // The high-water row covers what the orders table cannot see: a restored
+    // backup is missing orders the cloud still holds, and re-issuing one of those
+    // numbers gets order.paid refused with a 409 for good.
     let branch_code: String = sqlx::query_scalar("SELECT code FROM branches WHERE id = ?")
         .bind(branch_id)
         .fetch_optional(&mut *tx)
@@ -78,13 +81,20 @@ pub async fn take_cash(
         .ok_or_else(|| AppError::NotFound("branch".into()))?;
     let prefix = format!("{branch_code}-{day}-");
     let seq: i64 = sqlx::query_scalar(
-        "SELECT COALESCE(MAX(CAST(substr(receipt_number, ?) AS INTEGER)), 0)
-         FROM orders
-         WHERE branch_id = ? AND receipt_number LIKE ?",
+        "SELECT MAX(
+                  (SELECT COALESCE(MAX(CAST(substr(receipt_number, ?) AS INTEGER)), 0)
+                   FROM orders
+                   WHERE branch_id = ? AND receipt_number LIKE ?),
+                  (SELECT COALESCE(MAX(last_sequence), 0)
+                   FROM receipt_high_water
+                   WHERE branch_id = ? AND prefix = ?)
+                )",
     )
     .bind(prefix.chars().count() as i64 + 1)
     .bind(branch_id)
     .bind(format!("{prefix}%"))
+    .bind(branch_id)
+    .bind(&prefix)
     .fetch_one(&mut *tx)
     .await?;
     let receipt_number = format!("{prefix}{:04}", seq + 1);

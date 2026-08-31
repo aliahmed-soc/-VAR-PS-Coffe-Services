@@ -64,6 +64,16 @@ never backwards. Both covered by `src-tauri/tests/restore_reconciliation.rs`. Pu
 itself behaved correctly throughout: the newer cloud sale was never overwritten by the older
 restored state.
 
+Fixing those two exposed the third rewind on the same path, and the most damaging. The
+receipt allocator reads the highest number this till has already issued out of its own orders
+table, and a restored backup is missing orders the cloud still holds, so it re-issued
+`UAT1-20260831-0001`. The cloud's global unique index refused `order.paid` with a `409` and
+kept refusing it: the sale showed paid on the till, sat in `checkout_pending` in the cloud,
+and because the cloud demands strict sequence order that one stuck event blocked every later
+event from the same till for good. Reconciliation now records the receipts the cloud has
+already issued in `receipt_high_water`, and `take_cash` allocates above both that mark and
+its own orders. Covered by `src-tauri/tests/restore_reconciliation.rs`.
+
 Known non-blocking defects, deliberately not fixed during UAT:
 
 - `upsert_product` and `upsert_payment_method` in `src-tauri/src/auth/reference.rs` omit
@@ -77,6 +87,10 @@ Known non-blocking defects, deliberately not fixed during UAT:
   cross-branch (`403` on cross-branch writes) and `list_stations` filters by the session
   branch. The Rust test named `cashier_bootstrap_drops_foreign_branch_rows` only proves
   those rows are never *cached*, not that they are dropped.
+- `branch.sqlite.pre-restore` is never cleaned up, so `restore_reconciliation_required` is
+  set again on every later start. Harmless — the tick pulls before pushing and clears it, and
+  the sequence and receipt marks only ever move forward — but the badge shows
+  `RECONCILE REQUIRED` for a few seconds on each launch of a till that was ever restored.
 - The UAT bootstrap's Arabic product names were stored as mojibake because the PowerShell
   Management-API helper posts its body as ISO-8859-1. Hosted data has been repaired over a
   UTF-8 client. Production bootstrap must not go through that helper.

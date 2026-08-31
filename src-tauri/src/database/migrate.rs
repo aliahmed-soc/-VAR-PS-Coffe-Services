@@ -13,6 +13,11 @@ const MIGRATIONS: &[(&str, i64, &str)] = &[
         2,
         include_str!("../../migrations/sqlite/0002_seed_payment_methods.sql"),
     ),
+    (
+        "0003_receipt_high_water",
+        3,
+        include_str!("../../migrations/sqlite/0003_receipt_high_water.sql"),
+    ),
 ];
 
 pub async fn apply(pool: &SqlitePool) -> AppResult<()> {
