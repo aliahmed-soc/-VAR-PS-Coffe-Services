@@ -31,7 +31,7 @@ async fn restore_does_not_let_a_stale_wal_corrupt_the_restored_database() {
     dev::seed_two_branches(&pool).await.unwrap();
     for i in 0..600 {
         sqlx::query(
-            "INSERT INTO audit_logs (id, branch_id, actor_user_id, action, entity_type, entity_id, created_at)
+            "INSERT INTO audit_logs (id, branch_id, user_id, action, entity_type, entity_id, created_at)
              VALUES (?, 'b1', 'u-c1', 'uat.filler', 'test', ?, ?)",
         )
         .bind(uuid::Uuid::new_v4().to_string())
